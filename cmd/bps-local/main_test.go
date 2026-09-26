@@ -32,6 +32,13 @@ func TestInterruptDuringProbeExitsAfterCleanupWithoutError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows exits through stdin EOF; covered separately")
 	}
+	// 保持模拟连接未完成，避免“端口拒绝”先于 SIGINT 返回导致调度相关误报。
+	release := make(chan struct{})
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer proxy.Close()
+	defer close(release)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 	root := t.TempDir()
 	home := filepath.Join(root, "codex")
 	state := filepath.Join(root, "state")
@@ -46,9 +53,9 @@ func TestInterruptDuringProbeExitsAfterCleanupWithoutError(t *testing.T) {
 	if e := os.WriteFile(filepath.Join(home, "auth.json"), []byte(auth), 0600); e != nil {
 		t.Fatal(e)
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestEngineHelper", "--", "--codex-home", home, "--state-dir", state)
-	// 假账号仅供进程测试；所有连接强制指向不可用的环回代理，绝不访问真实上游。
-	cmd.Env = append(os.Environ(), "BPS_ENGINE_TEST_HELPER=1", "HTTPS_PROXY=http://127.0.0.1:1", "https_proxy=http://127.0.0.1:1", "NO_PROXY=", "no_proxy=")
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestEngineHelper", "--", "--codex-home", home, "--state-dir", state)
+	// 假账号仅供进程测试；所有连接强制指向本机模拟代理，绝不访问真实上游。
+	cmd.Env = append(os.Environ(), "BPS_ENGINE_TEST_HELPER=1", "HTTPS_PROXY="+proxy.URL, "https_proxy="+proxy.URL, "NO_PROXY=", "no_proxy=")
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 	if e := cmd.Start(); e != nil {

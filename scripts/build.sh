@@ -16,7 +16,7 @@ iconutil -c icns .build/AstraBridge.iconset -o "$APP/Contents/Resources/AstraBri
 cp README.md LICENSE NOTICE VERSION "$APP/Contents/Resources/"
 cp upstream-manifest.json "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/docs"
-cp docs/source-provenance.md docs/native-images.md "$APP/Contents/Resources/docs/"
+cp docs/source-provenance.md docs/native-images.md docs/building.md docs/verification.md "$APP/Contents/Resources/docs/"
 cp -R licenses "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

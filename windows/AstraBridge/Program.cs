@@ -30,6 +30,7 @@ internal static class Program
                     checks.Add("preview-screenshot");
                     SmokeTest.VerifyProtocol(); checks.Add("typed-json-contract");
                     await SmokeTest.VerifyEngineAsync(); checks.Add("isolated-engine-idle-and-eof-exit");
+                    await SmokeTest.VerifyStartupErrorAsync(); checks.Add("startup-error-preserved-after-exit");
                 }
                 catch (Exception error) { failure = error.GetType().Name + ": " + error.Message; }
                 try

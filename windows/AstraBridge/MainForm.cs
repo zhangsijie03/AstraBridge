@@ -34,7 +34,7 @@ internal sealed class MainForm : Form
         Text = "AstraBridge · 星桥";
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Microsoft YaHei UI", 10);
-        ClientSize = new Size(720, 656);
+        ClientSize = new Size(720, 700);
         MinimumSize = new Size(650, 660);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = SystemColors.Window;
@@ -97,6 +97,7 @@ internal sealed class MainForm : Form
         Add(root, fields, 12);
         var count = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         count.Controls.Add(InterfaceStyle.Label("成功请求  ", 9, secondary: true)); count.Controls.Add(requests);
+        account.AutoSize = false; account.AutoEllipsis = true; account.Size = new Size(360, 28);
         Add(root, Columns(account, count), 18);
         var guide = Stack(); guide.Controls.Add(InterfaceStyle.Label("接入 AiMaMi", 10, true));
         var instruction = InterfaceStyle.Label("中转注入 → 自定义中转模型，填入以上三项，协议选择 Responses。", 9, secondary: true);
@@ -230,6 +231,8 @@ internal sealed class MainForm : Form
         e.Cancel = true;
         if (closing) return;
         closing = true; busy = true; status.Text = "正在关闭中转…"; UpdateControls();
+        // 预览或启动失败时 Dispose 可能同步完成，先离开当前 FormClosing 回调再真正关闭。
+        await Task.Yield();
         try { await engine.DisposeAsync(); mayClose = true; Close(); }
         catch (Exception error) when (error is Win32Exception or IOException or InvalidOperationException or TimeoutException)
         {

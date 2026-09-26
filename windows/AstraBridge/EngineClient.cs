@@ -9,8 +9,8 @@ internal sealed class EngineClient : IAsyncDisposable
     private readonly SemaphoreSlim inputGate = new(1, 1);
     private Process? process;
     private Task? monitor;
-    private bool closing;
-    private bool failed;
+    private volatile bool closing;
+    private volatile bool failed;
     public event Action<EngineEvent>? Received;
     public event Action<string>? Faulted;
     public bool Available => !closing && !failed && process is { HasExited: false };
@@ -52,16 +52,21 @@ internal sealed class EngineClient : IAsyncDisposable
     {
         // 持续排空 stderr，防止管道满后阻塞；不把可能含敏感信息的原始输出写入日志。
         Task errors = DrainErrorsAsync(child);
+        string? lastStateError = null;
         try
         {
             while (await child.StandardOutput.ReadLineAsync() is { } line)
             {
                 if (line.Length > 1_048_576) throw new JsonException("后台状态过长");
-                Received?.Invoke(Protocol.Read(line));
+                EngineEvent value = Protocol.Read(line);
+                if (value.Type == EventKind.State)
+                    lastStateError = value.Phase == EnginePhase.Error ? value.Message : null;
+                Received?.Invoke(value);
             }
             await child.WaitForExitAsync();
             await errors;
-            if (!closing) ReportFault($"后台进程已退出（代码 {child.ExitCode}），请重新打开应用。");
+            // 启动失败通常先发具体修复提示再退出，不能用笼统的退出提示覆盖它。
+            if (!closing) ReportFault(lastStateError ?? $"后台进程已退出（代码 {child.ExitCode}），请重新打开应用。");
         }
         catch (Exception error) when (error is IOException or InvalidOperationException or JsonException)
         {
@@ -106,11 +111,19 @@ internal sealed class EngineClient : IAsyncDisposable
             try { await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
             catch (TimeoutException)
             {
-                child.Kill(entireProcessTree: true);
+                try { child.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) when (child.HasExited) { /* 超时与自然退出竞争时，退出结果已经满足要求。 */ }
                 await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
             }
             if (monitor is not null) await monitor;
         }
-        finally { child.Dispose(); process = null; }
+        catch
+        {
+            // 清理失败保留进程句柄，允许用户再次关闭时重试终止，避免失去子进程控制权。
+            closing = false;
+            throw;
+        }
+        child.Dispose();
+        process = null;
     }
 }

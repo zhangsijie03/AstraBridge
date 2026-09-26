@@ -23,6 +23,34 @@ internal static class SmokeTest
         }
     }
 
+    public static async Task VerifyStartupErrorAsync()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "AstraBridge-invalid-" + Guid.NewGuid().ToString("N"));
+        string stateDirectory = Path.Combine(directory, "state");
+        Directory.CreateDirectory(stateDirectory);
+        string settings = Path.Combine(stateDirectory, "relay.json");
+        await File.WriteAllTextAsync(settings, "invalid-synthetic-settings");
+        string? stateError = null;
+        var exited = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var engine = new EngineClient();
+        engine.Received += value => { if (value.Phase == EnginePhase.Error) stateError = value.Message; };
+        engine.Faulted += message => exited.TrySetResult(message);
+        try
+        {
+            engine.Start(directory);
+            string finalError = await exited.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            if (string.IsNullOrWhiteSpace(stateError) || finalError != stateError || !finalError.Contains("relay.json", StringComparison.Ordinal))
+                throw new InvalidOperationException("引擎退出覆盖了具体的配置修复提示");
+            if (engine.Available || await File.ReadAllTextAsync(settings) != "invalid-synthetic-settings")
+                throw new InvalidOperationException("配置失败后引擎仍可操作，或损坏配置被意外改写");
+        }
+        finally
+        {
+            await engine.DisposeAsync();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     public static async Task VerifyEngineAsync()
     {
         string directory = Path.Combine(Path.GetTempPath(), "AstraBridge-smoke-" + Guid.NewGuid().ToString("N"));
