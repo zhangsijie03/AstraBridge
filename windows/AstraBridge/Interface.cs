@@ -43,8 +43,8 @@ internal sealed class RelayPowerButton : Button
         e.Graphics.DrawEllipse(border, circle);
         float unit = diameter / 5;
         if (Running) e.Graphics.FillRectangle(glyph, Width / 2f - unit, Height / 2f - unit, unit * 2, unit * 2);
-        else e.Graphics.FillPolygon(glyph, [new(Width / 2f - unit * .7f, Height / 2f - unit * 1.1f),
-            new(Width / 2f - unit * .7f, Height / 2f + unit * 1.1f), new(Width / 2f + unit * 1.2f, Height / 2f)]);
+        else e.Graphics.FillPolygon(glyph, new PointF[] { new(Width / 2f - unit * .7f, Height / 2f - unit * 1.1f),
+            new(Width / 2f - unit * .7f, Height / 2f + unit * 1.1f), new(Width / 2f + unit * 1.2f, Height / 2f) });
         if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(Rectangle.Round(circle), 2, 2));
     }
 }
