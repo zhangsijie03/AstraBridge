@@ -1,0 +1,117 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Verify and package macOS arm64
+        shell: bash
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          python3 scripts/check_upstream.py
+          go test -mod=vendor -race -count=1 ./...
+          go vet -mod=vendor ./...
+          python3 scripts/test_ui_contract.py
+          bash scripts/build.sh
+          python3 scripts/smoke.py
+          codesign --verify --deep --strict dist/AstraBridge.app
+          version=$(tr -d '[:space:]' < VERSION)
+          ditto -c -k --sequesterRsrc --keepParent dist/AstraBridge.app "dist/AstraBridge-${version}-macOS-arm64.zip"
+          unzip -t "dist/AstraBridge-${version}-macOS-arm64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-arm64
+          path: dist/AstraBridge-*-macOS-arm64.zip
+          if-no-files-found: error
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify and package Windows x64
+        shell: pwsh
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          CGO_ENABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/check_upstream.py
+          if ($LASTEXITCODE -ne 0) { throw 'Upstream source verification failed' }
+          go test -mod=vendor -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
+          go vet -mod=vendor ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Go vet failed' }
+          ./scripts/build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-checks
+          path: .build/windows-smoke*
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-x64
+          path: dist/AstraBridge-*-Windows-x64.zip
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+          pattern: '*-*64'
+      - name: Publish both packages and checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          test "$RELEASE_TAG" = "v${version}"
+          test -f "artifacts/AstraBridge-${version}-macOS-arm64.zip"
+          test -f "artifacts/AstraBridge-${version}-Windows-x64.zip"
+          (cd artifacts && sha256sum *.zip > SHA256SUMS.txt)
+          gh release create "$RELEASE_TAG" artifacts/*.zip artifacts/SHA256SUMS.txt \
+            --verify-tag --title "AstraBridge ${version} · 星桥" \
+            --notes-file "docs/releases/${version}.md"

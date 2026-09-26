@@ -1,0 +1,73 @@
+{
+  "repository": "https://github.com/ranxi2001/sub2api",
+  "tag": "v2.8.11",
+  "commit": "3bf31dedc335318238fbf29e376e10f9329d3eb5",
+  "source_path": "backend/internal/service/basispoints",
+  "sha256": {
+    "NOTICE.md": "4d6155ed492d0c5fdb09b56b2bc7696f27104f74a96964bd2a88170104016fec",
+    "basispoints_test.go": "5b302840c9aacb17acd05b9b5af5333f2a6d74a0ed7b0d6bc3aea4eaa58b3c74",
+    "catalog.go": "a5970d5a255929c4aec4dd860108cc2166d383b7a0cd903d91f78a85e3636c7f",
+    "catalog_test.go": "b41e24dd0dd62ff28e8f58ee138e2e1fac4d4a0c1f61c51f6814f022a8ed8ebb",
+    "custom_transport.go": "6ed8175b451a23da5ca263e5afeedd92d7feecab4075ff0975e672414c6735bf",
+    "custom_transport_test.go": "f53fb2b2f79e688ea77c8c85cf68d40738a8844f3c6715bcd5da424b2422a85c",
+    "deep_audit_test.go": "e0ec7e6611d45feec41a6c868b9526062e8419b3e3afe6d1f291768c00fdfe90",
+    "deep_envelope_test.go": "7d4511b569dfa2fe481532b73a0db811d87b46a72d36369d199e027a276697f2",
+    "direct_call_test.go": "b3c6447cd55524d5e5f3c25b8b76b888006a48ec482173c76df0351a8be5c355",
+    "envelope.go": "f133b80e2f607109b1f351ab4574e310036da8fcc9dad552de383e9344eecbe5",
+    "envelope_test.go": "a0186141d51531be0f7e522b0002aeacf8d352a3c307273cc4395e509c526c45",
+    "history_collision_test.go": "b85a6838ed779b5614a974cd1d037fdf2ae1add4c2b5608aa00ff663ce5025d0",
+    "history_recovery_test.go": "c2eed4f66f0a522f0f9284b26d10fcdd364a395965b86c143c89aeee286cc2a9",
+    "images.go": "1cf89ca5585df59dba719c2793e3396bb75720d6ba73a6efca3ac01b8fd7671e",
+    "images_test.go": "1711d83a9f303f922fed7a47ee03a5d92631109528656b7d8d3381e431dceee8",
+    "plan.go": "c9418c67c796599f43935e58fb9499b7799e42e790a5ff2e13b5144806ef599a",
+    "plan_test.go": "60e5202c69263ea7e86841ca40d860f9a982c44c645ef2bab02e37f674c5e5a4",
+    "raw_custom_call_test.go": "85d765c7428ee7b3327586fed4d4dc7d3cd2d587718f529fd44b12453e1ed934",
+    "request.go": "02eadd3aca93aefbbcd3754ffafedafe33817b2ee8f256f103b5dd5bbe05aa52",
+    "request_compatibility_test.go": "510318c241119783ca76861143a9ace97216fc4d27deafa969323dbae10628ea",
+    "stream.go": "15a5787dd6a28c83722aabe167f7e4f00751994246f1fac5828c8c391825b02e",
+    "terminal_tools_test.go": "8f6cd3119be1a0e851136b51d0576fc5661211eb95c8884318710217abe76c77",
+    "tools.go": "dfac7539c613040e19cdd5a95d3517f5bf4acee00d6cbeee7939743b503cd6f5",
+    "attachments.go": "26fde9f42698b5e16bd4b84fb5120ae534bceb1fe43c604b041c9b55b863187b",
+    "attachments_test.go": "d613a2a83a23a587908ad4b2529300c2949a411596a881aa8f55484fa7789f52",
+    "image_attachment_support.go": "5ad4fbc743dd39d453b7e325e923f952378afcc10fcc49f0573536d42117b93f"
+  },
+  "baseline_sha256": {
+    "NOTICE.md": "4d6155ed492d0c5fdb09b56b2bc7696f27104f74a96964bd2a88170104016fec",
+    "basispoints_test.go": "5b302840c9aacb17acd05b9b5af5333f2a6d74a0ed7b0d6bc3aea4eaa58b3c74",
+    "catalog.go": "a5970d5a255929c4aec4dd860108cc2166d383b7a0cd903d91f78a85e3636c7f",
+    "catalog_test.go": "b41e24dd0dd62ff28e8f58ee138e2e1fac4d4a0c1f61c51f6814f022a8ed8ebb",
+    "custom_transport.go": "6ed8175b451a23da5ca263e5afeedd92d7feecab4075ff0975e672414c6735bf",
+    "custom_transport_test.go": "f53fb2b2f79e688ea77c8c85cf68d40738a8844f3c6715bcd5da424b2422a85c",
+    "deep_audit_test.go": "e0ec7e6611d45feec41a6c868b9526062e8419b3e3afe6d1f291768c00fdfe90",
+    "deep_envelope_test.go": "7d4511b569dfa2fe481532b73a0db811d87b46a72d36369d199e027a276697f2",
+    "direct_call_test.go": "b3c6447cd55524d5e5f3c25b8b76b888006a48ec482173c76df0351a8be5c355",
+    "envelope.go": "f133b80e2f607109b1f351ab4574e310036da8fcc9dad552de383e9344eecbe5",
+    "envelope_test.go": "a0186141d51531be0f7e522b0002aeacf8d352a3c307273cc4395e509c526c45",
+    "history_collision_test.go": "b85a6838ed779b5614a974cd1d037fdf2ae1add4c2b5608aa00ff663ce5025d0",
+    "history_recovery_test.go": "c2eed4f66f0a522f0f9284b26d10fcdd364a395965b86c143c89aeee286cc2a9",
+    "images.go": "a0f3b744446cd497db8edb9a04b5c531478f3910bb3ad0195b8d88fa5e2dcb49",
+    "images_test.go": "d3980b27b67b618f26bfc3af3c5b6472d56f60b487ff16e5eadd556b3c63f8b1",
+    "plan.go": "c9418c67c796599f43935e58fb9499b7799e42e790a5ff2e13b5144806ef599a",
+    "plan_test.go": "60e5202c69263ea7e86841ca40d860f9a982c44c645ef2bab02e37f674c5e5a4",
+    "raw_custom_call_test.go": "85d765c7428ee7b3327586fed4d4dc7d3cd2d587718f529fd44b12453e1ed934",
+    "request.go": "02eadd3aca93aefbbcd3754ffafedafe33817b2ee8f256f103b5dd5bbe05aa52",
+    "request_compatibility_test.go": "510318c241119783ca76861143a9ace97216fc4d27deafa969323dbae10628ea",
+    "stream.go": "15a5787dd6a28c83722aabe167f7e4f00751994246f1fac5828c8c391825b02e",
+    "terminal_tools_test.go": "8f6cd3119be1a0e851136b51d0576fc5661211eb95c8884318710217abe76c77",
+    "tools.go": "dfac7539c613040e19cdd5a95d3517f5bf4acee00d6cbeee7939743b503cd6f5"
+  },
+  "native_images": {
+    "commit": "26b324b44c80929e5f86aeb36e09996423c4a5c0",
+    "source_path": "backend/internal/service/basispoints",
+    "unmodified_files": [
+      "attachments.go",
+      "attachments_test.go",
+      "images.go",
+      "images_test.go"
+    ],
+    "extracted_files": {
+      "image_attachment_support.go": "Shared limits, image codec registration and relayImagePayload extracted from image_relay.go; no public serving or disk relay"
+    },
+    "host_adapter_source": "backend/internal/service/openai_excel_bps_attachments.go"
+  }
+}

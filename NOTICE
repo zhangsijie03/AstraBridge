@@ -1,0 +1,22 @@
+AstraBridge · 星桥
+Copyright (c) 2026 zhangsijie03 and contributors.
+
+Original AstraBridge desktop and gateway integration code is licensed under
+GPL-3.0-only. See LICENSE. Third-party code retains its own copyright and
+license notices; this declaration does not replace those terms.
+
+Protocol: ranxi2001/sub2api (LGPL-3.0), with original basispoints attribution
+retained in licenses/Basispoints-NOTICE.md. Exact source commits, file hashes,
+and extraction boundaries are documented in upstream-manifest.json and
+docs/source-provenance.md. Native image attribution is retained separately.
+
+Runtime dependencies: go-toml v2 (MIT), golang.org/x/image (BSD-3-Clause).
+Vendored test dependencies retain their licenses in vendor/.
+Windows self-contained distributions include Microsoft .NET (MIT and
+third-party components); see the bundled .NET license and notices.
+
+AstraBridge is a community project, not an official OpenAI product.
+OpenAI, Codex, AiMaMi and Sub2API names belong to their respective owners.
+Complete corresponding source is available at:
+https://github.com/zhangsijie03/AstraBridge
+The source tag matches the VERSION file bundled in each release.

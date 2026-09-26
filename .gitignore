@@ -1,0 +1,20 @@
+dist/
+.build/
+*.log
+.DS_Store
+
+# Windows/.NET generated output
+**/bin/
+**/obj/
+.vs/
+# Local credentials and runtime state must never be published
+auth.json
+relay.json
+config-backup.json
+.env
+*.pfx
+*.p12
+
+# Local historical planning notes (not release documentation)
+/docs/design.md
+/docs/implementation-plan.md
