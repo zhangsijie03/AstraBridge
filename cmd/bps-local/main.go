@@ -32,6 +32,9 @@ type Phase string
 // BPS 原版协议只验证这一模型；界面和本地路由不允许切换到其他模型。
 const fixedModelID = "gpt-6-astra"
 
+// 测试请求会真实访问 BPS；冷却窗口避免重复固定探测触发上游风控。
+const probeCooldown = time.Minute
+
 const (
 	phaseIdle    Phase = "idle"
 	phaseTesting Phase = "testing"
@@ -71,6 +74,7 @@ type controller struct {
 	out      *output
 	server   *http.Server
 	count    atomic.Int64
+	lastProbe time.Time
 }
 
 func (c *controller) status(p Phase, msg string) {
@@ -147,6 +151,11 @@ func probe(ctx context.Context, authPath, model string) (identity.Account, error
 }
 func (c *controller) test() (identity.Account, error) {
 	c.model = fixedModelID
+	if remaining := probeCooldown - time.Since(c.lastProbe); !c.lastProbe.IsZero() && remaining > 0 {
+		seconds := int((remaining + time.Second - 1) / time.Second)
+		return identity.Account{}, fmt.Errorf("测试请求刚完成，为避免触发 BPS 风控，请 %d 秒后再试", seconds)
+	}
+	c.lastProbe = time.Now()
 	c.status(phaseTesting, "正在验证当前账号的 BPS 连接…")
 	ctx, cancel := context.WithTimeout(c.ctx, 60*time.Second)
 	defer cancel()

@@ -211,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         testButton.font = .systemFont(ofSize: 12, weight: .medium)
         testButton.image = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
         testButton.imagePosition = .imageLeading
-        testButton.toolTip = "使用当前登录账号向 BPS 发送一次测试请求"
+        testButton.toolTip = "使用当前登录账号向 BPS 发送一次测试请求；每次测试后冷却 60 秒"
         testButton.setAccessibilityLabel("测试 BPS 连接")
         testButton.widthAnchor.constraint(equalToConstant: 112).isActive = true
         testButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
@@ -442,6 +442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "将星桥接入 AiMaMi"
         alert.informativeText = "1. 点击「启动中转」。\n2. 在 AiMaMi 打开「中转注入 → 自定义中转模型」。\n3. 复制本窗口的 Base URL、API Key 和模型 ID，协议选择 Responses。\n4. 保存并启用中转，保持 AiMaMi 真实账号模式。\n\n启动仅监听本机。点击「测试连接」或发送聊天时，才会使用当前账号连接 BPS。\n\n只支持 gpt-6-astra。图片自动上传为 BPS 原生附件，无需图床或公网域名。支持 PNG、JPEG、GIF、WebP；单张最多 20 MiB，每次最多 20 张、合计 32 MiB。\n\n客户端需发送图片内容；不读取请求里的本地文件路径。JSON Schema 结构化输出仍不支持。"
+        alert.informativeText += "\n\n测试连接是真实上游请求，每次测试后有 60 秒冷却，请勿连续点击。"
         alert.addButton(withTitle: "知道了")
         alert.beginSheetModal(for: window)
     }

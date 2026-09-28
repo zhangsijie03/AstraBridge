@@ -28,6 +28,13 @@ func TestBPSModelIsFixed(t *testing.T) {
 	}
 }
 
+func TestProbeCooldownBlocksRepeatedUpstreamRequest(t *testing.T) {
+	c := &controller{lastProbe: time.Now()}
+	if _, err := c.test(); err == nil || !strings.Contains(err.Error(), "BPS 风控") {
+		t.Fatalf("repeated probe was not blocked: %v", err)
+	}
+}
+
 func TestInterruptDuringProbeExitsAfterCleanupWithoutError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows exits through stdin EOF; covered separately")

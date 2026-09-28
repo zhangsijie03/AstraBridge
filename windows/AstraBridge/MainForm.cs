@@ -81,7 +81,7 @@ internal sealed class MainForm : Form
         sectionTitle.Controls.Add(InterfaceStyle.Label("连接配置", 11, true));
         var note = InterfaceStyle.Label("  Responses · 仅限本机", 9, secondary: true);
         note.Margin = new Padding(8, 5, 0, 0); sectionTitle.Controls.Add(note);
-        tips.SetToolTip(probe, "使用当前登录账号向 BPS 发送一次测试请求");
+        tips.SetToolTip(probe, "使用当前登录账号向 BPS 发送一次测试请求；每次测试后冷却 60 秒");
         Add(root, Columns(sectionTitle, probe), 8);
 
         var fields = new TableLayoutPanel
