@@ -20,6 +20,9 @@ const (
 	codeConnection     = "upstream_connection_failed"
 	codeResponseFailed = "bps_response_failed"
 	codeUnsupported    = "unsupported_bps_request"
+	// SSE comments are ignored by eventsource parsers. Use a valid Responses
+	// event so clients with event-level idle timers observe the keepalive.
+	sseHeartbeatFrame = "event: response.in_progress\ndata: {\"type\":\"response.in_progress\"}\n\n"
 )
 
 type streamFrame struct {
@@ -101,7 +104,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 	if stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		if err := writeFrame(w, ": keepalive\n\n"); err != nil {
+		if err := writeFrame(w, sseHeartbeatFrame); err != nil {
 			result.Code = codeCancelled
 			result.Cancelled = true
 			return
@@ -126,7 +129,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 			return
 		case <-ticker.C:
 			if stream {
-				if err := writeFrame(w, ": keepalive\n\n"); err != nil {
+				if err := writeFrame(w, sseHeartbeatFrame); err != nil {
 					result.Code = codeCancelled
 					result.Cancelled = true
 					return

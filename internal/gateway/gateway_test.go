@@ -85,6 +85,10 @@ func TestStreamingAndWireFormat(t *testing.T) {
 		if data["model"] != "gpt-6-astra" || data["reasoning_effort"] != "xhigh" {
 			t.Error("model or effort changed incorrectly")
 		}
+		management, ok := data["context_management"].([]interface{})
+		if !ok || len(management) != 1 || management[0].(map[string]interface{})["compact_threshold"] != float64(920000) {
+			t.Errorf("unexpected compaction threshold: %#v", data["context_management"])
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n"+completed)
 	})
@@ -103,6 +107,22 @@ func TestUpstreamErrorsNeverEchoSecrets(t *testing.T) {
 	g.ServeHTTP(w, request(simpleRequest))
 	if w.Code != 403 || strings.Contains(w.Body.String(), "SECRET-PROMPT") || strings.Contains(w.Body.String(), token()) {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+func TestUpstreamValidationKeepsSafeClassification(t *testing.T) {
+	g := gateway(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		fmt.Fprint(w, `{"error":{"type":"invalid_request_error","code":"tool_schema_invalid","param":"input[3].arguments","message":"secret prompt"}}`)
+	})
+	var result Result
+	g.report = func(r Result) { result = r }
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, request(simpleRequest))
+	if w.Code != http.StatusUnprocessableEntity || result.UpstreamType != "invalid_request_error" || result.UpstreamCode != "tool_schema_invalid" || len(result.UpstreamFields) != 1 || result.UpstreamFields[0] != "input[3].arguments" {
+		t.Fatalf("missing safe upstream classification: %+v; body=%s", result, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "secret prompt") {
+		t.Fatal("upstream message leaked to client")
 	}
 }
 func TestStreamTruncationEmitsOneFailure(t *testing.T) {
@@ -240,7 +260,7 @@ func TestWaitingStreamSendsHeartbeat(t *testing.T) {
 	defer resp.Body.Close()
 	buf := make([]byte, 128)
 	n, err := resp.Body.Read(buf)
-	if err != nil || !strings.Contains(string(buf[:n]), ": keepalive") {
+	if err != nil || !strings.Contains(string(buf[:n]), "event: response.in_progress") {
 		t.Fatalf("no initial heartbeat: %q %v", buf[:n], err)
 	}
 }
@@ -299,7 +319,7 @@ func TestWaitingHeartbeatRepeatsAndTotalDeadlineStillApplies(t *testing.T) {
 	g.report = func(r Result) { result = r }
 	w := httptest.NewRecorder()
 	g.ServeHTTP(w, request(simpleRequest))
-	if strings.Count(w.Body.String(), ": keepalive") < 2 {
+	if strings.Count(w.Body.String(), "event: response.in_progress") < 2 {
 		t.Fatal("missing repeated heartbeats", w.Body.String())
 	}
 	if result.Cancelled || result.Code != codeTimeout || result.Success {

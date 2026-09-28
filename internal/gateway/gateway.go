@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -31,6 +32,12 @@ type Result struct {
 	Status    int      `json:"status,omitempty"`
 	Account   string   `json:"account,omitempty"`
 	Warnings  []string `json:"warnings,omitempty"`
+	// Upstream fields are intentionally limited to stable classifications and
+	// parameter names; never expose the upstream error message, which may echo
+	// prompts, tool arguments, or credentials.
+	UpstreamType   string   `json:"upstream_type,omitempty"`
+	UpstreamCode   string   `json:"upstream_code,omitempty"`
+	UpstreamFields []string `json:"upstream_fields,omitempty"`
 }
 type Gateway struct {
 	model             string
@@ -136,6 +143,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var stream bool
 	_ = json.Unmarshal(source["stream"], &stream)
+	callerSetCompaction := len(source["context_management"]) > 0
 	if r.URL.Path == "/v1/responses/compact" {
 		var input []json.RawMessage
 		if json.Unmarshal(source["input"], &input) != nil {
@@ -172,6 +180,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.emit(Result{Code: codeUnsupported, Status: 400, Model: model, Message: unsupportedMessage(raw)})
 		return
 	}
+	prepared, e = raiseCompactionThreshold(prepared, !callerSetCompaction)
+	if e != nil {
+		problem(w, 400, "invalid_bps_request", "无法准备 BPS 请求")
+		return
+	}
 	result := Result{Model: model, Effort: bridge.Effort, Account: account.MaskedEmail, Warnings: bridge.Warnings}
 	defer func() {
 		if !result.Success && (r.Context().Err() != nil || result.Cancelled) {
@@ -204,6 +217,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			problem(w, result.Status, result.Code, result.Message)
 			return
 		}
+		prepared, e = raiseCompactionThreshold(prepared, !callerSetCompaction)
+		if e != nil {
+			result.Code = "invalid_bps_request"
+			result.Status = 400
+			result.Message = "上传后的图片请求无法准备；未发送生成请求。"
+			problem(w, result.Status, result.Code, result.Message)
+			return
+		}
 	}
 	upstream, e := http.NewRequestWithContext(ctx, "POST", g.endpoint, bytes.NewReader(prepared))
 	if e != nil {
@@ -230,12 +251,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		result.Status = resp.StatusCode
 		result.Code = "upstream_rejected"
-		// 上游可能回显用户输入，因此既不打印错误正文，也不直接返回给客户端。
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		result.UpstreamType, result.UpstreamCode, result.UpstreamFields = classifyUpstreamRejection(resp.StatusCode, body)
 		status := resp.StatusCode
 		if status < 400 {
 			status = 502
 		}
-		result.Message = fmt.Sprintf("BPS 上游返回 HTTP %d；请检查登录状态、模型权限或稍后重试。", resp.StatusCode)
+		result.Message = formatUpstreamRejection(resp.StatusCode, result.UpstreamType, result.UpstreamCode, result.UpstreamFields)
 		problem(w, status, result.Code, result.Message)
 		return
 	}
@@ -248,6 +270,125 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	converted := bridge.Stream(resp.Body)
 	defer converted.Close()
 	g.forwardStream(w, r, ctx, converted, stream, &result)
+}
+
+// The pinned v2.8.11 adapter emits a 200k default. Keep that protocol source
+// byte-for-byte intact while applying the newer BPS compaction default at the
+// host boundary. The caller's explicit context_management is left untouched.
+func raiseCompactionThreshold(raw []byte, useDefault bool) ([]byte, error) {
+	if !useDefault {
+		return raw, nil
+	}
+	var source map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return nil, err
+	}
+	management, ok := source["context_management"]
+	if !ok {
+		return raw, nil
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(management, &entries); err != nil {
+		return raw, nil
+	}
+	changed := false
+	for _, entry := range entries {
+		var kind string
+		_ = json.Unmarshal(entry["type"], &kind)
+		var threshold int64
+		if kind != "compaction" || json.Unmarshal(entry["compact_threshold"], &threshold) != nil || threshold != 200000 {
+			continue
+		}
+		entry["compact_threshold"] = json.RawMessage("920000")
+		changed = true
+	}
+	if !changed {
+		return raw, nil
+	}
+	updated, err := json.Marshal(entries)
+	if err != nil {
+		return nil, err
+	}
+	source["context_management"] = updated
+	return json.Marshal(source)
+}
+
+// classifyUpstreamRejection retains only safe protocol metadata. The error
+// message itself is deliberately discarded because BPS may echo request data.
+func classifyUpstreamRejection(status int, body []byte) (kind, code string, fields []string) {
+	switch {
+	case status == http.StatusUnauthorized:
+		kind = "authentication_error"
+	case status == http.StatusForbidden:
+		kind = "permission_error"
+	case status == http.StatusUnprocessableEntity:
+		kind = "validation_error"
+	case status == http.StatusTooManyRequests:
+		kind = "rate_limit_error"
+	case status >= 500:
+		kind = "upstream_server_error"
+	default:
+		kind = "upstream_rejection"
+	}
+	var envelope struct {
+		Error struct {
+			Type   string `json:"type"`
+			Code   string `json:"code"`
+			Param  string `json:"param"`
+			Field  string `json:"field"`
+			Fields []struct {
+				Name string `json:"name"`
+				Path string `json:"path"`
+			} `json:"fields"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) == nil {
+		if value := safeUpstreamToken(envelope.Error.Type); value != "" {
+			kind = value
+		}
+		code = safeUpstreamToken(envelope.Error.Code)
+		seen := make(map[string]bool)
+		for _, value := range []string{envelope.Error.Param, envelope.Error.Field} {
+			if value = safeUpstreamToken(value); value != "" && !seen[value] {
+				fields = append(fields, value)
+				seen[value] = true
+			}
+		}
+		for _, field := range envelope.Error.Fields {
+			for _, value := range []string{field.Name, field.Path} {
+				if value = safeUpstreamToken(value); value != "" && !seen[value] {
+					fields = append(fields, value)
+					seen[value] = true
+				}
+			}
+		}
+	}
+	return kind, code, fields
+}
+
+func safeUpstreamToken(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) == 0 || len(value) > 64 {
+		return ""
+	}
+	for _, ch := range value {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || strings.ContainsRune("._-[]", ch) {
+			continue
+		}
+		return ""
+	}
+	return value
+}
+
+func formatUpstreamRejection(status int, kind, code string, fields []string) string {
+	details := kind
+	if code != "" {
+		details += "/" + code
+	}
+	if len(fields) > 0 {
+		details += "；字段：" + strings.Join(fields, ", ")
+	}
+	return fmt.Sprintf("BPS 上游拒绝请求（HTTP %d，%s）；请检查登录状态、模型权限或请求格式后重试。", status, details)
 }
 
 // 不把适配器错误原文放入 UI；它可能包含客户端参数或工具内容。

@@ -102,7 +102,7 @@ macOS 沿用旧版目录，以保留已有地址和 Key。macOS 配置文件权�
 | 自动标题或结构化输出失败 | 上游协议不支持 JSON Schema 结构化输出，不会伪造兼容结果 |
 | 重启后继续旧聊天异常 | 回放缓存已清空，建议新建聊天 |
 
-提供 `/v1/models`、`/v1/responses` 和 `/v1/responses/compact`；不提供 Chat Completions 转换。仅带 `previous_response_id` 的增量历史不受支持。推理档位沿用上游转换：`max/ultra → xhigh`，`none/minimal → low`。15 秒流式心跳和 20 分钟总超时不能修复上游断网或客户端自行超时。
+提供 `/v1/models`、`/v1/responses` 和 `/v1/responses/compact`；不提供 Chat Completions 转换。仅带 `previous_response_id` 的增量历史不受支持。推理档位沿用上游转换：`max/ultra → xhigh`，`none/minimal → low`。流式连接每 15 秒发送一个合法的 `response.in_progress` 事件，兼容会丢弃 SSE 注释的客户端；20 分钟总超时仍不能修复上游断网或客户端自行超时。
 
 报告问题时请附系统版本、星桥版本、操作步骤和脱敏错误提示。**不要上传 auth.json、relay.json、完整聊天、token 或 Key。**
 
