@@ -35,6 +35,21 @@ func TestProbeCooldownBlocksRepeatedUpstreamRequest(t *testing.T) {
 	}
 }
 
+func TestProbeTextUsesRandomTemplateAndToken(t *testing.T) {
+	first, firstToken, err := probeText()
+	if err != nil || first == "" || !strings.Contains(first, firstToken) {
+		t.Fatalf("invalid first probe text: %q, %q, %v", first, firstToken, err)
+	}
+	for i := 0; i < 4; i++ {
+		second, secondToken, err := probeText()
+		if err != nil || !strings.Contains(second, secondToken) || second == first {
+			continue
+		}
+		return
+	}
+	t.Fatal("probe text did not vary across attempts")
+}
+
 func TestInterruptDuringProbeExitsAfterCleanupWithoutError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows exits through stdin EOF; covered separately")

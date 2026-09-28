@@ -42,7 +42,7 @@ Windows UI 的 `--preview` 使用合成数据。`--smoke-test --smoke-report <�
 - `--codex-home <目录>`：指定 `auth.json` / `config.toml` 所在目录，默认使用 `CODEX_HOME` 或用户目录下 `.codex`。
 - `--state-dir <目录>`：覆盖当前平台的状态目录。
 - `--restore`：仅尝试安全恢复旧版 BPS Local 的备份。
-- `--probe`：**会向真实 BPS 发送当前账号凭据和固定文本**，不属于离线构建验证。
+- `--probe`：**会向真实 BPS 发送当前账号凭据和随机校验文案**，不属于离线构建验证。
 
 客户端通过 stdin JSON 行发送 `start`、`stop`、`probe`、`quit` 操作；stdout 返回状态和请求结果事件。stdin EOF 会取消等待中的请求并关闭本地监听。进程锁防止同一状态目录被多个引擎并行使用。
 

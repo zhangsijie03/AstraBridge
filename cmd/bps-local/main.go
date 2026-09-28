@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -32,7 +34,7 @@ type Phase string
 // BPS 原版协议只验证这一模型；界面和本地路由不允许切换到其他模型。
 const fixedModelID = "gpt-6-astra"
 
-// 测试请求会真实访问 BPS；冷却窗口避免重复固定探测触发上游风控。
+// 测试请求会真实访问 BPS；冷却窗口避免重复探测触发上游风控。
 const probeCooldown = time.Minute
 
 const (
@@ -86,7 +88,7 @@ func (c *controller) status(p Phase, msg string) {
 	c.out.send(event)
 }
 
-// 探测仅发送固定文本；真实聊天内容与上游错误正文均不进入控制台日志。
+// 探测只发送短期随机校验文案；真实聊天内容与上游错误正文均不进入控制台日志。
 type probeWriter struct {
 	header http.Header
 	status int
@@ -104,12 +106,32 @@ func (w *probeWriter) Write(p []byte) (int, error) {
 	}
 	return w.body.Write(p)
 }
+func probeText() (string, string, error) {
+	var nonce [6]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", "", fmt.Errorf("无法生成测试校验词")
+	}
+	token := "ASTRA_BRIDGE_TEST_" + strings.ToUpper(hex.EncodeToString(nonce[:]))
+	templates := []string{
+		"Reply with exactly %s. Do not use tools.",
+		"Respond using only this verification token: %s.",
+		"Return this token and nothing else: %s.",
+		"Output exactly %s and no additional text.",
+	}
+	text := fmt.Sprintf(templates[int(nonce[0])%len(templates)], token)
+	return text, token, nil
+}
+
 func probe(ctx context.Context, authPath, model string) (identity.Account, error) {
 	a, e := identity.Read(authPath)
 	if e != nil {
 		return a, e
 	}
-	body, _ := json.Marshal(map[string]interface{}{"model": model, "input": "Reply with exactly BPS_LOCAL_OK. Do not use tools.", "stream": false, "reasoning": map[string]string{"effort": "low"}})
+	text, token, e := probeText()
+	if e != nil {
+		return a, e
+	}
+	body, _ := json.Marshal(map[string]interface{}{"model": model, "input": text, "stream": false, "reasoning": map[string]string{"effort": "low"}})
 	r, _ := http.NewRequestWithContext(ctx, "POST", "http://127.0.0.1:17861/v1/responses", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Authorization", "Bearer probe")
@@ -142,12 +164,12 @@ func probe(ctx context.Context, authPath, model string) (identity.Account, error
 	}
 	for _, item := range response.Output {
 		for _, part := range item.Content {
-			if part.Type == "output_text" && strings.Contains(part.Text, "BPS_LOCAL_OK") {
+			if part.Type == "output_text" && strings.Contains(part.Text, token) {
 				return a, nil
 			}
 		}
 	}
-	return a, errors.New("上游已返回，但未通过固定文本检查")
+	return a, errors.New("上游已返回，但未通过随机校验词检查")
 }
 func (c *controller) test() (identity.Account, error) {
 	c.model = fixedModelID
