@@ -268,7 +268,8 @@ func TestNativeToolScreenshotsAndOrdinaryNonStream(t *testing.T) {
 					return
 				}
 				body, _ := io.ReadAll(r.Body)
-				if !bytes.Contains(body, []byte(`"file_id":"file-toolshot"`)) || !bytes.Contains(body, []byte(`"type":"function_call_output"`)) || bytes.Contains(body, []byte("data:image")) {
+				// v2.9.3 工具截图保留内联，不再上传附件。
+				if bytes.Contains(body, []byte(`"file_id":"file-toolshot"`)) || !bytes.Contains(body, []byte(`"type":"function_call_output"`)) || !bytes.Contains(body, []byte(data)) {
 					t.Error("tool screenshot lost", string(body))
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -291,7 +292,7 @@ func TestNativeToolScreenshotsAndOrdinaryNonStream(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 			g.ServeHTTP(w, request(string(body)))
-			if w.Code != 200 || uploads.Load() != 1 || strings.Contains(w.Header().Get("Content-Type"), "event-stream") || !strings.Contains(w.Body.String(), `"status":"completed"`) {
+			if w.Code != 200 || uploads.Load() != 0 || strings.Contains(w.Header().Get("Content-Type"), "event-stream") || !strings.Contains(w.Body.String(), `"status":"completed"`) {
 				t.Fatal(w.Code, uploads.Load(), w.Body.String())
 			}
 		})

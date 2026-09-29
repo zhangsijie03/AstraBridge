@@ -123,8 +123,11 @@ func TestNativeImagesOnlyTraverseTypedContent(t *testing.T) {
 	require.NoError(t, err)
 	plan, err := PrepareNativeImages(raw)
 	require.NoError(t, err)
-	require.Len(t, plan.parts, 2)
-	out, err := plan.Upload(context.Background(), &AttachmentCache{}, "", func(context.Context, InlineAttachment) (string, error) { return "file-typed", nil })
+	require.Empty(t, plan.parts)
+	out, err := plan.Upload(context.Background(), &AttachmentCache{}, "", func(context.Context, InlineAttachment) (string, error) {
+		t.Fatal("tool screenshots must not upload")
+		return "", nil
+	})
 	require.NoError(t, err)
 	var decoded object
 	require.NoError(t, json.Unmarshal(out, &decoded))
@@ -264,4 +267,52 @@ func TestAttachmentCacheBoundsActualUploads(t *testing.T) {
 	require.Zero(t, cache.active)
 	require.Empty(t, cache.entries)
 	require.Empty(t, cache.flights)
+}
+
+func TestNativeToolImageValidationAndScope(t *testing.T) {
+	url, _ := nativeTestURL(t)
+	source := object{"model": "gpt-6-astra", "input": []any{
+		object{"type": "function_call", "name": "view_image", "call_id": "call_image", "arguments": "{}"},
+		object{"type": "function_call_output", "call_id": "call_image", "output": []any{object{"type": "input_image", "image_url": url}}},
+	}}
+	raw, err := json.Marshal(source)
+	require.NoError(t, err)
+	plan, err := PrepareNativeImages(raw)
+	require.NoError(t, err)
+	require.False(t, plan.HasImages())
+	wire, bridge, err := plan.PrepareWithCatalog("scope", nil, new(CatalogCache))
+	require.NoError(t, err)
+	require.Contains(t, string(wire), url)
+	require.Contains(t, string(wire), `"detail":"auto"`)
+	_, _, err = Prepare(raw, "scope", nil)
+	require.ErrorContains(t, err, "image support is disabled")
+	for _, change := range []func(object){
+		func(p object) { p["image_url"] = "data:image/png;base64,PRIVATE_INVALID" },
+		func(p object) { p["detail"] = "invalid" },
+		func(p object) { p["file_id"] = "file-mixed" },
+	} {
+		var modified object
+		require.NoError(t, json.Unmarshal(raw, &modified))
+		items := mustTestValue[[]any](t, modified["input"])
+		item := mustTestValue[object](t, items[1])
+		parts := mustTestValue[[]any](t, item["output"])
+		part := mustTestValue[object](t, parts[0])
+		change(part)
+		invalid, err := json.Marshal(modified)
+		require.NoError(t, err)
+		_, err = PrepareNativeImages(invalid)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "PRIVATE_INVALID")
+		_, _, err = bridge.Reprepare(invalid)
+		require.Error(t, err, "reprepare must not admit new/unvalidated screenshots or invalid metadata")
+	}
+	// The native grant is restricted to tool output, even for an identical URL.
+	messageRaw := nativeTestRequest(t, url)
+	_, _, err = bridge.Reprepare(messageRaw)
+	require.Error(t, err)
+	source["input"] = append(mustTestValue[[]any](t, source["input"]), object{"role": "user", "content": []any{object{"type": "input_image", "image_url": url}}})
+	mixed, err := json.Marshal(source)
+	require.NoError(t, err)
+	_, err = PrepareNativeImagesWithLimit(mixed, 1)
+	require.ErrorContains(t, err, "at most 1")
 }

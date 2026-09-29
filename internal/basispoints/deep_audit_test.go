@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDeepAuditReplayLossRecoversCompleteClientHistory(t *testing.T) {
-	for _, scenario := range []string{"same_account", "changed_account", "restart", "other_clients_evict"} {
+	for _, scenario := range []string{"same_account", "changed_account", "restart", "other_clients_evict", "idle_expiry"} {
 		t.Run(scenario, func(t *testing.T) {
-			cache := new(ReplayCache)
+			now := time.Now()
+			cache := &ReplayCache{now: func() time.Time { return now }}
 			source := testSource()
 			source["tools"] = []any{object{"type": "function", "name": "shell"}}
 			_, bridge := mustPrepare(t, source, "account-1|client-key", cache)
@@ -26,6 +28,8 @@ func TestDeepAuditReplayLossRecoversCompleteClientHistory(t *testing.T) {
 				scope = "account-2|client-key"
 			case "restart":
 				cache = new(ReplayCache)
+			case "idle_expiry":
+				now = now.Add(replayCacheIdleTTL)
 			case "other_clients_evict":
 				for i := 0; i < 1024; i++ {
 					cache.put("unrelated-account|unrelated-key", fmt.Sprint(i), native)
@@ -105,7 +109,7 @@ func TestDeepAuditImageInToolResultValidated(t *testing.T) {
 	}}
 	raw, _ := json.Marshal(source)
 	_, _, err = Prepare(raw, bridge.scope, cache)
-	if err == nil || !strings.Contains(err.Error(), "does not accept data:image") {
+	if err == nil || !strings.Contains(err.Error(), "image support is disabled") {
 		t.Fatalf("tool result image must have the same HTTPS requirement as user content: %v", err)
 	}
 }

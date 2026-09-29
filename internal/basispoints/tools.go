@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 type tool struct {
@@ -14,21 +17,59 @@ type tool struct {
 	Kind       string
 	Definition string
 	Parameters object
+	Catalog    object
+	Schema     *jsonschema.Schema
 }
+
+const (
+	replayCacheMaxEntries = 1024
+	replayCacheMaxBytes   = 16 << 20
+	replayCacheEntryBytes = 1 << 20
+	replayCacheIdleTTL    = 2 * time.Hour
+)
 
 type replayEntry struct {
 	key             string
 	raw             []byte
 	callFingerprint string
+	used            time.Time
+	weight          int
 }
 
 // ReplayCache retains native tool identities without mixing accounts or sessions.
 // Both entry count and bytes are bounded because tool arguments can be large.
+// Idle entries expire on the next cache operation. The byte budget includes
+// payloads, keys, signatures and estimated metadata; it is not an RSS limit.
 type ReplayCache struct {
 	mu      sync.Mutex
 	entries map[string]*list.Element
 	order   list.List
 	bytes   int
+	now     func() time.Time
+}
+
+func (c *ReplayCache) currentTime() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+func (c *ReplayCache) removeLocked(element *list.Element) {
+	entry, _ := element.Value.(replayEntry)
+	delete(c.entries, entry.key)
+	c.bytes -= entry.weight
+	c.order.Remove(element)
+}
+
+func (c *ReplayCache) expireLocked(now time.Time) {
+	for oldest := c.order.Front(); oldest != nil; oldest = c.order.Front() {
+		entry, _ := oldest.Value.(replayEntry)
+		if now.Sub(entry.used) < replayCacheIdleTTL {
+			return
+		}
+		c.removeLocked(oldest)
+	}
 }
 
 func (c *ReplayCache) put(scope, id string, item object, clientCall ...object) {
@@ -36,33 +77,31 @@ func (c *ReplayCache) put(scope, id string, item object, clientCall ...object) {
 		return
 	}
 	raw, err := json.Marshal(item)
-	if err != nil || len(raw) > 1<<20 {
-		return
+	var signature string
+	if err == nil && len(raw) <= replayCacheEntryBytes && len(clientCall) == 1 {
+		signature = historyCallFingerprint(clientCall[0])
 	}
+	key := scope + "\x00" + id
+	weight := len(raw) + len(key) + len(signature) + 128
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {
 		c.entries = make(map[string]*list.Element)
 	}
-	key := scope + "\x00" + id
+	now := c.currentTime()
+	c.expireLocked(now)
 	if old := c.entries[key]; old != nil {
-		// Only replayEntry values are inserted into this private list.
-		entry, _ := old.Value.(replayEntry)
-		c.bytes -= len(entry.raw)
-		c.order.Remove(old)
+		c.removeLocked(old)
 	}
-	var signature string
-	if len(clientCall) == 1 {
-		signature = historyCallFingerprint(clientCall[0])
+	// An uncacheable replacement must not leave an older native identity
+	// available to a later output-only replay with the same call ID.
+	if err != nil || len(raw) > replayCacheEntryBytes || weight > replayCacheMaxBytes {
+		return
 	}
-	c.entries[key] = c.order.PushBack(replayEntry{key: key, raw: raw, callFingerprint: signature})
-	c.bytes += len(raw)
-	for len(c.entries) > 1024 || c.bytes > 16<<20 {
-		old := c.order.Front()
-		entry, _ := old.Value.(replayEntry)
-		delete(c.entries, entry.key)
-		c.bytes -= len(entry.raw)
-		c.order.Remove(old)
+	c.entries[key] = c.order.PushBack(replayEntry{key: key, raw: raw, callFingerprint: signature, used: now, weight: weight})
+	c.bytes += weight
+	for len(c.entries) > replayCacheMaxEntries || c.bytes > replayCacheMaxBytes {
+		c.removeLocked(c.order.Front())
 	}
 }
 
@@ -124,16 +163,24 @@ func (c *ReplayCache) getMatching(scope, id, signature string, requireSignature 
 		return nil
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	now := c.currentTime()
+	c.expireLocked(now)
 	entry := c.entries[scope+"\x00"+id]
 	if entry == nil {
+		c.mu.Unlock()
 		return nil
 	}
 	cached, ok := entry.Value.(replayEntry)
 	if !ok || (requireSignature && cached.callFingerprint != signature) {
+		c.mu.Unlock()
 		return nil
 	}
+	cached.used = now
+	entry.Value = cached
 	c.order.MoveToBack(entry)
+	c.mu.Unlock()
+	// Stored JSON is immutable. Decode an independent caller-owned tree
+	// outside the global cache lock, including after eviction/replacement.
 	var item object
 	if decode(cached.raw, &item) != nil {
 		return nil
@@ -143,7 +190,10 @@ func (c *ReplayCache) getMatching(scope, id, signature string, requireSignature 
 
 func (b *Bridge) collectTools(value any, namespace string) ([]any, error) {
 	var catalog []any
-	items, _ := value.([]any)
+	items, ok := value.([]any)
+	if value != nil && !ok {
+		return nil, fmt.Errorf("basispoints client tools must be an array")
+	}
 	for _, raw := range items {
 		item, ok := raw.(object)
 		if !ok {
@@ -194,18 +244,61 @@ func (b *Bridge) collectTools(value any, namespace string) ([]any, error) {
 				entry["parameters"] = item["input_schema"]
 			}
 		}
-		definition := fingerprint(item)
+		definition := toolDefinitionFingerprint(item)
 		if previous, exists := b.tools[key]; exists {
 			if previous.Definition != definition || previous.Namespace != namespace || previous.Name != name {
 				return nil, fmt.Errorf("conflicting duplicate Basispoints client tool %q", key)
 			}
 			continue
 		}
-		parameters, _ := entry["parameters"].(object)
-		b.tools[key] = tool{Name: name, Namespace: namespace, Kind: kind, Definition: definition, Parameters: parameters}
+		parameters, ok := entry["parameters"].(object)
+		if entry["parameters"] != nil && !ok {
+			return nil, fmt.Errorf("basispoints function parameters must be a schema object")
+		}
+		schema, err := compileToolSchema(parameters)
+		if err != nil {
+			return nil, err
+		}
+		b.tools[key] = tool{Name: name, Namespace: namespace, Kind: kind, Definition: definition, Parameters: parameters, Schema: schema, Catalog: item}
 		catalog = append(catalog, entry)
 	}
 	return catalog, nil
+}
+
+// Tool descriptions and discovery state can change as Codex replays or lazily
+// loads its catalog. They do not change how a call is decoded. Keep the first
+// declaration (the explicit/inherited catalog precedes historical additions),
+// but compare its call contract rather than rejecting annotation-only changes.
+// Unknown fields remain part of the signature so new execution constraints
+// cannot silently disappear.
+func toolDefinitionFingerprint(item object) string {
+	definition := make(object, len(item))
+	function := text(item["type"]) == "function"
+	for field, value := range item {
+		switch field {
+		case "description", "defer_loading":
+			continue
+		case "parameters", "inputSchema", "input_schema":
+			if function {
+				continue
+			}
+		}
+		definition[field] = value
+	}
+	if function {
+		// Match collectTools' existing schema alias precedence exactly.
+		parameters := item["parameters"]
+		if parameters == nil {
+			parameters = item["inputSchema"]
+		}
+		if parameters == nil {
+			parameters = item["input_schema"]
+		}
+		if parameters != nil {
+			definition["parameters"] = parameters
+		}
+	}
+	return fingerprint(definition)
 }
 
 // Hosted capabilities cannot be relayed as client function calls. Ignore known
@@ -223,7 +316,7 @@ func isUnsupportedHostedTool(kind string) bool {
 // rebuildNativeHistoryCall uses only the complete call supplied by the client.
 // It does not execute a tool or require that an old tool remain in today's
 // catalog. Cached native items remain authoritative when available.
-func rebuildNativeHistoryCall(item object) (object, error) {
+func (b *Bridge) rebuildNativeHistoryCall(item object) (object, error) {
 	id, name := text(item["call_id"]), text(item["name"])
 	if id == "" || strings.TrimSpace(id) != id || name == "" || strings.TrimSpace(name) != name {
 		return nil, fmt.Errorf("basispoints history recovery requires a complete tool call with nonempty call_id and name")
@@ -263,11 +356,40 @@ func rebuildNativeHistoryCall(item object) (object, error) {
 	if err != nil {
 		return nil, fmt.Errorf("basispoints history tool arguments cannot be serialized")
 	}
-	arguments, err := json.Marshal(object{
+	outer := object{
 		"code": string(code), "summary": "Replay a previously requested client tool",
 		"extended_summary": "The supplied client history contains this tool call; consume its recorded result without repeating it.",
 		"destructive":      false, "references": []any{},
-	})
+	}
+	// Rebuilt calls are examples for subsequent model turns. Use the same raw
+	// transport advertised by today's catalog instead of teaching CUSTOM tools
+	// to use the ordinary FUNCTION envelope. Cached native calls stay verbatim.
+	if info, ok := b.tools[name]; ok && info.Kind == "custom" && text(item["type"]) == "custom_tool_call" {
+		outer["summary"] = customTransportPrefix + name
+		outer["code"] = envelope["input"]
+		if _, _, err := customTransportEnvelope(outer); err != nil {
+			return nil, err
+		}
+	}
+	if info, ok := b.tools[name]; ok && text(item["type"]) == "function_call" && supportsFunctionCodeTransport(name, info.Kind, info.Parameters) {
+		args, _ := envelope["arguments"].(object)
+		if _, hasCode := args["code"].(string); hasCode {
+			outer, err = encodeFunctionCodeTransport(name, args)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if info, ok := b.tools[name]; ok && text(item["type"]) == "function_call" && supportsFunctionCmdTransport(name, info.Kind, info.Parameters) {
+		args, _ := envelope["arguments"].(object)
+		if _, hasCmd := args["cmd"].(string); hasCmd {
+			outer, err = encodeFunctionCmdTransport(name, args)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	arguments, err := json.Marshal(outer)
 	if err != nil {
 		return nil, fmt.Errorf("basispoints history transport cannot be serialized")
 	}
@@ -285,7 +407,8 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 	result := make([]any, 0, len(input))
 	seenCalls := make(map[string]bool)
 	var trigger any
-	for _, raw := range input {
+	for index, raw := range input {
+		var toolImages object
 		item, ok := raw.(object)
 		if !ok {
 			return nil, fmt.Errorf("invalid Basispoints input item")
@@ -309,7 +432,7 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 			if native := b.replay.getForCall(b.scope, id, item); native != nil {
 				item = native
 			} else {
-				native, err := rebuildNativeHistoryCall(item)
+				native, err := b.rebuildNativeHistoryCall(item)
 				if err != nil {
 					return nil, err
 				}
@@ -322,13 +445,13 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 			if !seenCalls[id] {
 				native := b.replay.get(b.scope, id)
 				if native == nil {
-					return nil, fmt.Errorf("basispoints original tool item is unavailable for this tool result; start a new conversation")
+					return nil, fmt.Errorf("basispoints original tool item is unavailable for this tool result (path=input[%d]); resend the matching complete tool call with its result, or start a new conversation", index)
 				}
 				result = append(result, native)
 				seenCalls[id] = true
 			}
 			item["type"] = "function_call_output"
-			if err := validateHistoryContent(item["output"]); err != nil {
+			if err := b.validateHistoryContent(item["output"], index, "output"); err != nil {
 				return nil, err
 			}
 			// Codex custom results carry ctco_ IDs. After lowering to a function
@@ -341,35 +464,27 @@ func (b *Bridge) translateHistory(input []any) ([]any, error) {
 				itemID = "fc_" + fingerprint(itemID)
 			}
 			item["id"] = itemID
+			toolImages = separateToolImages(item)
 		case "configuration_update":
 			return nil, fmt.Errorf("basispoints does not support configuration_update; start a new request with the desired effort")
 		}
-		if err := validateHistoryContent(item["content"]); err != nil {
+		if err := b.validateHistoryContent(item["content"], index, "content"); err != nil {
+			return nil, err
+		}
+		var err error
+		item, err = normalizeHistoryMessage(item, index)
+		if err != nil {
 			return nil, err
 		}
 		result = append(result, item)
+		if toolImages != nil {
+			result = append(result, toolImages)
+		}
 	}
 	if trigger != nil {
 		result = append(result, trigger)
 	}
 	return result, nil
-}
-
-func validateHistoryContent(value any) error {
-	content, _ := value.([]any)
-	for _, rawPart := range content {
-		part, _ := rawPart.(object)
-		switch text(part["type"]) {
-		case "input_text", "output_text", "text", "refusal":
-		case "input_image":
-			if err := validateImage(part); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("basispoints supports text and HTTPS input_image content only")
-		}
-	}
-	return nil
 }
 
 func isTool(item object) bool {
@@ -396,8 +511,24 @@ func (b *Bridge) translateCall(native object) (object, error) {
 		return nil, fmt.Errorf("basispoints returned empty tool transport arguments")
 	}
 	envelope, marked, err := customTransportEnvelope(arguments)
+	rawCustom := marked
+	rawCmd := false
+	if !marked && err == nil {
+		envelope, marked, err = b.functionCodeTransportEnvelope(arguments)
+	}
+	if !marked && err == nil {
+		envelope, marked, err = b.functionCmdTransportEnvelope(arguments)
+		rawCmd = marked
+	}
 	if !marked && err == nil {
 		envelope, err = decodeTransportEnvelope(arguments["code"])
+		if err != nil {
+			if recovered, ok := recoverTransportEnvelope(arguments["code"], b.tools); ok {
+				envelope, err = recovered, nil
+			} else {
+				err = fmt.Errorf("%w; raw CUSTOM input requires summary=codex2api.custom/CATALOG_NAME; raw FUNCTION_CODE requires summary=codex2api.function_code/CATALOG_NAME for an eligible catalog function", err)
+			}
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -408,14 +539,14 @@ func (b *Bridge) translateCall(native object) (object, error) {
 	}
 	info, allowed := b.tools[toolName]
 	if !allowed {
-		return nil, fmt.Errorf("basispoints returned a tool outside the client's catalog")
+		return nil, unknownClientToolError{}
 	}
-	result, err := b.finishClientToolCall(native, info, envelope, marked)
+	result, err := b.finishClientToolCall(native, info, envelope, rawCustom, !rawCmd)
 	if err != nil {
 		return nil, err
 	}
 	// run_officejs is a real BPS-native tool, so its item replays upstream verbatim.
-	b.replay.put(b.scope, text(native["call_id"]), native, result)
+	b.rememberReplay(text(native["call_id"]), native, result)
 	return result, nil
 }
 
@@ -457,25 +588,30 @@ func (b *Bridge) translateDirectCatalogCall(native object) (object, error) {
 	default:
 		return nil, fmt.Errorf("basispoints returned an unsupported native tool; no tool was executed")
 	}
-	result, err := b.finishClientToolCall(native, info, envelope, false)
+	result, err := b.finishClientToolCall(native, info, envelope, false, true)
 	if err != nil {
 		return nil, err
+	}
+	// Direct calls can carry real upstream encryption metadata. Only relay
+	// that metadata when the arguments still belong to the same client tool.
+	if encrypted := native["encrypted_function_args"]; encrypted != nil && info.Kind == "function" {
+		result["encrypted_function_args"] = encrypted
 	}
 	// The model bypassed run_officejs, so the bare native name is not a BPS tool.
 	// Cache a transport-wrapped replay so the next turn presents a BPS-known
 	// run_officejs item, matching how absent history is rebuilt.
-	wrapped, err := rebuildNativeHistoryCall(result)
+	wrapped, err := b.rebuildNativeHistoryCall(result)
 	if err != nil {
 		return nil, err
 	}
-	b.replay.put(b.scope, text(native["call_id"]), wrapped, result)
+	b.rememberReplay(text(native["call_id"]), wrapped, result)
 	return result, nil
 }
 
 // finishClientToolCall builds the client-facing tool item from a resolved catalog
 // tool and its envelope. It performs no caching and executes nothing; callers decide
 // how the call replays upstream.
-func (b *Bridge) finishClientToolCall(native object, info tool, envelope object, marked bool) (object, error) {
+func (b *Bridge) finishClientToolCall(native object, info tool, envelope object, marked, validateSchema bool) (object, error) {
 	if marked && info.Kind != "custom" {
 		return nil, fmt.Errorf("basispoints raw transport requires a declared custom tool")
 	}
@@ -522,27 +658,81 @@ func (b *Bridge) finishClientToolCall(native object, info tool, envelope object,
 		if _, ok := args.(object); !ok {
 			return nil, fmt.Errorf("basispoints function arguments must be an object")
 		}
+		if info.Schema != nil {
+			if err := validateToolNumberBudget(args); err != nil {
+				return nil, toolArgumentsSchemaError{}
+			}
+		}
+		// FUNCTION_CMD preserves client-validated metadata verbatim. Ordinary
+		// function envelopes still enforce their complete declared schema.
+		if validateSchema && info.Schema != nil && info.Schema.Validate(args) != nil {
+			return nil, toolArgumentsSchemaError{}
+		}
 		encoded, _ := json.Marshal(args)
 		result["arguments"] = string(encoded)
+		// The relay envelope contains plaintext, even when a catalog parameter
+		// declares encrypted:true. Codex collaboration tools distinguish an
+		// explicit empty list from a missing field: without it, they incorrectly
+		// package plaintext messages as encrypted_content for the child agent.
+		result["encrypted_function_args"] = []string{}
 	}
 	return result, nil
 }
 
+type replayWrite struct {
+	id             string
+	native, client object
+}
+
+func (b *Bridge) rememberReplay(id string, native, client object) {
+	if b.stagedReplays != nil {
+		*b.stagedReplays = append(*b.stagedReplays, replayWrite{id, native, client})
+		return
+	}
+	b.replay.put(b.scope, id, native, client)
+}
+
+// Validate the whole batch before changing output or committing any replay entry.
 func (b *Bridge) translateResponse(response object) error {
 	if response == nil {
 		return nil
 	}
+	// Validate the whole batch before mutating output or committing replay items.
+	if err := b.validateToolResponse(response); err != nil {
+		return err
+	}
 	output, _ := response["output"].([]any)
+	translated := make([]any, len(output))
+	var writes []replayWrite
+	staged := *b
+	staged.stagedReplays = &writes
+	ids := make(map[string]bool)
+	count := 0
 	for i, raw := range output {
 		item, _ := raw.(object)
 		if isTool(item) {
-			translated, err := b.translateCall(item)
+			count++
+			if count > 1024 || (b.disallowParallel && count > 1) {
+				return fmt.Errorf("basispoints response violates the tool call count limit")
+			}
+			id := text(item["call_id"])
+			if id == "" || ids[id] {
+				return fmt.Errorf("basispoints response contains a missing or duplicate tool call_id")
+			}
+			ids[id] = true
+			call, err := staged.translateCall(item)
 			if err != nil {
 				return err
 			}
-			output[i] = translated
+			translated[i] = call
+		} else {
+			translated[i] = raw
 		}
 	}
+	for _, write := range writes {
+		b.replay.put(b.scope, write.id, write.native, write.client)
+	}
+	response["output"] = translated
 	response["reasoning"] = object{"effort": b.Effort}
 	response["parallel_tool_calls"] = false
 	return nil

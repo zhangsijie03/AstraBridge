@@ -117,7 +117,7 @@ func TestHistoryRecoveryRejectsIncompleteCalls(t *testing.T) {
 		for key, value := range patch {
 			call[key] = value
 		}
-		if _, err := rebuildNativeHistoryCall(call); err == nil {
+		if _, err := (&Bridge{}).rebuildNativeHistoryCall(call); err == nil {
 			t.Fatalf("invalid call was reconstructed: %+v", patch)
 		}
 	}
@@ -165,7 +165,8 @@ func TestToolOutputHTTPSImagesRemainIntact(t *testing.T) {
 	source["input"] = []any{message("user", "inspect"), object{"type": "function_call", "name": "view_image", "call_id": "call_image", "arguments": `{}`}, object{"type": "function_call_output", "call_id": "call_image", "output": []any{image}}}
 	body, _ := mustPrepare(t, source, "scope", nil)
 	items := mustTestValue[[]any](t, body["input"])
-	if !reflect.DeepEqual(mustTestValue[object](t, items[len(items)-1])["output"], []any{image}) {
+	content := mustTestValue[[]any](t, mustTestValue[object](t, items[len(items)-1])["content"])
+	if !reflect.DeepEqual(content[len(content)-1], image) {
 		t.Fatal("HTTPS tool image changed")
 	}
 }

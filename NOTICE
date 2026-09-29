@@ -10,7 +10,10 @@ retained in licenses/Basispoints-NOTICE.md. Exact source commits, file hashes,
 and extraction boundaries are documented in upstream-manifest.json and
 docs/source-provenance.md. Native image attribution is retained separately.
 
-Runtime dependencies: go-toml v2 (MIT), golang.org/x/image (BSD-3-Clause).
+Runtime dependencies: go-toml v2 (MIT), golang.org/x/image and x/text
+(BSD-3-Clause), santhosh-tekuri/jsonschema v6 (Apache-2.0), and tidwall gjson/match/pretty (MIT).
+Native transport diagnostics and adapted gateway recovery/scope/transport logic
+are derived from Sub2API v2.9.3; see docs/source-provenance.md.
 Vendored test dependencies retain their licenses in vendor/.
 Windows self-contained distributions include Microsoft .NET (MIT and
 third-party components); see the bundled .NET license and notices.

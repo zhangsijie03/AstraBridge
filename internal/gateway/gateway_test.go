@@ -214,13 +214,13 @@ func TestCompactAddsTrigger(t *testing.T) {
 func TestMissingThreadIdentityCannotShareReplayScope(t *testing.T) {
 	r1 := request(simpleRequest)
 	r1.Header.Del("thread-id")
-	r1.Header.Set("session_id", "shared-parent")
+	r1.Header.Del("session_id")
 	r2 := request(simpleRequest)
 	r2.Header.Del("thread-id")
-	r2.Header.Set("session_id", "shared-parent")
+	r2.Header.Del("session_id")
 	var source map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(simpleRequest), &source)
-	if requestScope(r1, source, "account-1") == requestScope(r2, source, "account-1") {
+	if requestScope(r1, source, "account-1") != "" || requestScope(r2, source, "account-1") != "" {
 		t.Fatal("unidentified requests must not share a replay cache")
 	}
 }
@@ -260,7 +260,7 @@ func TestWaitingStreamSendsHeartbeat(t *testing.T) {
 	defer resp.Body.Close()
 	buf := make([]byte, 128)
 	n, err := resp.Body.Read(buf)
-	if err != nil || !strings.Contains(string(buf[:n]), "event: response.in_progress") {
+	if err != nil || !strings.Contains(string(buf[:n]), ": keepalive") {
 		t.Fatalf("no initial heartbeat: %q %v", buf[:n], err)
 	}
 }
@@ -319,7 +319,7 @@ func TestWaitingHeartbeatRepeatsAndTotalDeadlineStillApplies(t *testing.T) {
 	g.report = func(r Result) { result = r }
 	w := httptest.NewRecorder()
 	g.ServeHTTP(w, request(simpleRequest))
-	if strings.Count(w.Body.String(), "event: response.in_progress") < 2 {
+	if strings.Count(w.Body.String(), ": keepalive") < 2 {
 		t.Fatal("missing repeated heartbeats", w.Body.String())
 	}
 	if result.Cancelled || result.Code != codeTimeout || result.Success {

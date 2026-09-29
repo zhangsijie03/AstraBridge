@@ -94,6 +94,9 @@ func (g *Gateway) uploadAttachment(ctx context.Context, account identity.Account
 
 func attachmentScope(scope, key string, account identity.Account) string {
 	// 换账号、换凭据或换线程后不能复用旧附件；不缓存图片字节或明文凭据。
+	if scope == "" {
+		return ""
+	}
 	sum := sha256.Sum256([]byte(scope + "\x00" + key + "\x00" + account.AccountID + "\x00" + account.AccessToken))
 	return hex.EncodeToString(sum[:])
 }

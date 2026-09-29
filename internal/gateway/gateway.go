@@ -3,9 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,6 +38,7 @@ type Result struct {
 	UpstreamFields []string `json:"upstream_fields,omitempty"`
 }
 type Gateway struct {
+	traceObserver     func(TraceEvent)
 	model             string
 	accountSource     func() (identity.Account, error)
 	heartbeatInterval time.Duration
@@ -48,6 +47,7 @@ type Gateway struct {
 	endpoint          string
 	client            *http.Client
 	replay            basispoints.ReplayCache
+	catalog           basispoints.CatalogCache
 	attachments       basispoints.AttachmentCache
 	bodyBytes         atomic.Int64
 	report            func(Result)
@@ -56,9 +56,12 @@ type Gateway struct {
 
 func New(key, model string, accountSource func() (identity.Account, error), report func(Result)) *Gateway {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 45 * time.Second
+	transport.ResponseHeaderTimeout = 300 * time.Second
+	// 与原生 BPS 长流配置一致，主动探测代理/NAT 静默断开的 HTTP/2 连接。
+	transport.ForceAttemptHTTP2 = true
+	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: 10 * time.Second, PingTimeout: 5 * time.Second}
 	transport.MaxIdleConnsPerHost = 8
-	return &Gateway{model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: 20 * time.Minute, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8)}
+	return &Gateway{model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: 20 * time.Minute, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: newBPSTransport(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8)}
 }
 func (g *Gateway) emit(r Result) {
 	if g.report != nil {
@@ -95,6 +98,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem(w, 415, "invalid_content_type", "请求必须为 application/json")
 		return
 	}
+	traceCtx, trace := g.beginTrace(r.Context())
+	r = r.WithContext(traceCtx)
+	traceSuccess := false
+	defer func() { trace.finish(r.Context(), traceSuccess) }()
 	if g.accountSource == nil {
 		problem(w, 503, "account_unavailable", "服务端尚未配置上游账号")
 		return
@@ -143,7 +150,6 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var stream bool
 	_ = json.Unmarshal(source["stream"], &stream)
-	callerSetCompaction := len(source["context_management"]) > 0
 	if r.URL.Path == "/v1/responses/compact" {
 		var input []json.RawMessage
 		if json.Unmarshal(source["input"], &input) != nil {
@@ -162,27 +168,25 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		stream = false
 	}
 	scope := requestScope(r, source, account.AccountID)
+	var replay *basispoints.ReplayCache
+	var catalog *basispoints.CatalogCache
+	if scope != "" {
+		replay, catalog = &g.replay, &g.catalog
+		source["prompt_cache_key"], _ = json.Marshal(scope)
+		raw, _ = json.Marshal(source)
+	}
 	// 所有图片及完整请求先在本地校验，避免无效工具或历史导致图片先被上传。
+	trace.stage(tracePrepare, "请求体已接收，正在校验工具与图片格式")
 	images, e := basispoints.PrepareNativeImages(raw)
 	if e != nil {
 		problem(w, 400, codeImageInvalid, e.Error())
 		g.emit(Result{Code: codeImageInvalid, Status: 400, Model: model, Message: "图片格式或大小不符合要求；支持 PNG、JPEG、GIF、WebP，单张最多 20 MiB。"})
 		return
 	}
-	preflight, e := images.Body()
-	if e != nil {
-		problem(w, 400, codeImageInvalid, "无法解析图片请求")
-		return
-	}
-	prepared, bridge, e := basispoints.Prepare(preflight, scope, &g.replay)
+	prepared, bridge, e := images.PrepareWithCatalog(scope, replay, catalog)
 	if e != nil {
 		problem(w, 400, "unsupported_bps_request", e.Error())
 		g.emit(Result{Code: codeUnsupported, Status: 400, Model: model, Message: unsupportedMessage(raw)})
-		return
-	}
-	prepared, e = raiseCompactionThreshold(prepared, !callerSetCompaction)
-	if e != nil {
-		problem(w, 400, "invalid_bps_request", "无法准备 BPS 请求")
 		return
 	}
 	result := Result{Model: model, Effort: bridge.Effort, Account: account.MaskedEmail, Warnings: bridge.Warnings}
@@ -193,12 +197,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			result.Status = 0
 			result.Message = "客户端已停止或取消本次请求；BPS 仍可继续使用。"
 		}
+		trace.result(result)
 		g.emit(result)
 	}()
 	// 完整请求超时有上界；客户端取消会沿同一 context 立即传递至上游。
 	ctx, cancel := context.WithTimeout(r.Context(), g.requestTimeout)
 	defer cancel()
 	if images.HasImages() {
+		trace.stage(traceUpload, "正在上传图片附件到 BPS")
 		raw, e = images.Upload(ctx, &g.attachments, attachmentScope(scope, g.key, account), func(uploadCtx context.Context, image basispoints.InlineAttachment) (string, error) {
 			return g.uploadAttachment(uploadCtx, account, image)
 		})
@@ -209,19 +215,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		prepared, bridge, e = basispoints.Prepare(raw, scope, &g.replay)
+		prepared, bridge, e = bridge.Reprepare(raw)
 		if e != nil {
 			result.Code = codeUnsupported
 			result.Status = 400
 			result.Message = "上传后的图片请求无法转换；未发送生成请求。"
-			problem(w, result.Status, result.Code, result.Message)
-			return
-		}
-		prepared, e = raiseCompactionThreshold(prepared, !callerSetCompaction)
-		if e != nil {
-			result.Code = "invalid_bps_request"
-			result.Status = 400
-			result.Message = "上传后的图片请求无法准备；未发送生成请求。"
 			problem(w, result.Status, result.Code, result.Message)
 			return
 		}
@@ -233,6 +231,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	upstream.Header = bpsHeaders(account)
+	trace.attempt(false)
 	resp, e := g.client.Do(upstream)
 	if e != nil {
 		setStreamFailure(&result, r.Context(), ctx, e)
@@ -247,7 +246,27 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem(w, result.Status, result.Code, result.Message)
 		return
 	}
-	defer resp.Body.Close()
+	trace.headers(resp.StatusCode)
+	resp.Body = traceBody(ctx, resp.Body)
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	if resp.StatusCode == http.StatusBadRequest {
+		resp, prepared, e = g.recoverEncrypted(ctx, resp, prepared, account)
+		if e != nil {
+			setStreamFailure(&result, r.Context(), ctx, e)
+			if !result.Cancelled {
+				if result.Code != codeTimeout {
+					result.Code, result.Status = codeConnection, http.StatusBadGateway
+					result.Message = "BPS 加密推理恢复连接失败；请求不会再次重放。"
+				}
+				problem(w, result.Status, result.Code, result.Message)
+			}
+			return
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		result.Status = resp.StatusCode
 		result.Code = "upstream_rejected"
@@ -267,50 +286,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem(w, 502, result.Code, "BPS 上游未返回事件流")
 		return
 	}
-	converted := bridge.Stream(resp.Body)
+	converted := g.streamWithRepairs(ctx, bridge, resp.Body, prepared, account)
 	defer converted.Close()
 	g.forwardStream(w, r, ctx, converted, stream, &result)
-}
-
-// The pinned v2.8.11 adapter emits a 200k default. Keep that protocol source
-// byte-for-byte intact while applying the newer BPS compaction default at the
-// host boundary. The caller's explicit context_management is left untouched.
-func raiseCompactionThreshold(raw []byte, useDefault bool) ([]byte, error) {
-	if !useDefault {
-		return raw, nil
-	}
-	var source map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &source); err != nil {
-		return nil, err
-	}
-	management, ok := source["context_management"]
-	if !ok {
-		return raw, nil
-	}
-	var entries []map[string]json.RawMessage
-	if err := json.Unmarshal(management, &entries); err != nil {
-		return raw, nil
-	}
-	changed := false
-	for _, entry := range entries {
-		var kind string
-		_ = json.Unmarshal(entry["type"], &kind)
-		var threshold int64
-		if kind != "compaction" || json.Unmarshal(entry["compact_threshold"], &threshold) != nil || threshold != 200000 {
-			continue
-		}
-		entry["compact_threshold"] = json.RawMessage("920000")
-		changed = true
-	}
-	if !changed {
-		return raw, nil
-	}
-	updated, err := json.Marshal(entries)
-	if err != nil {
-		return nil, err
-	}
-	source["context_management"] = updated
-	return json.Marshal(source)
+	traceSuccess = result.Success
 }
 
 // classifyUpstreamRejection retains only safe protocol metadata. The error
@@ -402,29 +381,7 @@ func unsupportedMessage(raw []byte) string {
 	}
 	_ = json.Unmarshal(raw, &request)
 	if request.Text.Format.Type != "" && request.Text.Format.Type != "text" {
-		return "Sub2API v2.8.11 原版不支持结构化格式；Codex 自动标题等请求可能因此失败，这不是账号权限异常。"
+		return "结构化格式请求未通过本地校验，请检查格式名称、JSON Schema 及其他参数；这不代表账号权限异常。"
 	}
 	return "此请求包含 BPS 不支持的参数、图片、工具或历史格式；这不代表账号权限异常。"
-}
-
-var unscopedSequence atomic.Uint64
-
-func requestScope(r *http.Request, source map[string]json.RawMessage, account string) string {
-	// 子线程优先，不能把所有共享父 session_id 的子代理放入同一个回放缓存。
-	thread := r.Header.Get("thread-id")
-	if thread == "" {
-		var v struct {
-			ThreadID string `json:"thread_id"`
-		}
-		if json.Unmarshal([]byte(r.Header.Get("x-codex-turn-metadata")), &v) == nil {
-			thread = v.ThreadID
-		}
-	}
-	identity := "thread:" + thread
-	if thread == "" {
-		identity = fmt.Sprintf("isolated-request:%d", unscopedSequence.Add(1))
-	}
-	// 没有可信线程 ID 时隔离每次请求，缺失历史宁可报错，也不能串用工具结果。
-	sum := sha256.Sum256([]byte(account + "\x00" + identity))
-	return hex.EncodeToString(sum[:])
 }

@@ -2,8 +2,10 @@ package identity
 
 import (
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +35,18 @@ func TestRejectsExpiredOrAPIKeyCredentials(t *testing.T) {
 		}
 		if _, e := Read(p); e == nil {
 			t.Fatal("invalid credential accepted")
+		}
+	}
+}
+
+func TestBPSRejectsExplicitFreeButAllowsUnknownPlan(t *testing.T) {
+	for _, plan := range []string{"", "plus", "free", " Free "} {
+		payload := fmt.Sprintf(`{"exp":4102444800,"https://api.openai.com/auth":{"chatgpt_account_id":"test-account","chatgpt_plan_type":%q}}`, plan)
+		token := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".signature"
+		_, err := FromToken(token, "test-account")
+		wantError := strings.EqualFold(strings.TrimSpace(plan), "free")
+		if (err != nil) != wantError {
+			t.Fatalf("plan %q: %v", plan, err)
 		}
 	}
 }

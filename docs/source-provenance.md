@@ -1,41 +1,48 @@
 # AstraBridge 星桥源码来源与抽离边界
 
-## 固定来源
+## 当前固定来源
 
-- 项目：https://github.com/ranxi2001/sub2api
-- 基线发布：https://github.com/ranxi2001/sub2api/releases/tag/v2.8.11
-- 完整提交：`3bf31dedc335318238fbf29e376e10f9329d3eb5`
-- 原目录：`backend/internal/service/basispoints/`
-- 本地目录：`internal/basispoints/`
+- 发布：https://github.com/ranxi2001/sub2api/releases/tag/v2.9.3
+- 真实提交：`faf58e440b1bddb07429f74ed63b570c11d1c0f8`
+- 附注标签对象：`a55cdff4a66db94c5b4c1479fd636d2ecf712d4d`（不是提交）
+- 原协议目录：`backend/internal/service/basispoints/`
+- 本地协议目录：`internal/basispoints/`
 
-2026-09-26 从 GitHub 固定提交重新获取该目录全部 23 个文件，包括协议源码、原测试和 NOTICE。该版本在 0.3.x 中逐字节保持原样。0.4.0 为用户授权的原生图片功能更新图片相关文件，其余 21 个文件继续保持该版本原样；当前有效来源与 SHA-256 均记录在根目录 `upstream-manifest.json`。
+58 个协议源码、测试与说明文件逐字节保持原样；另保留 1 个明确标注的图片共享代码提取文件。3 个 `backend/internal/util/transportdiag/` 文件原样抽离到 `internal/transportdiag/`。下载时核对固定提交目录树的 Git blob 哈希；`python3 scripts/check_upstream.py` 校验所有 62 个文件的 SHA-256。任何锁定文件改动、缺失或未登记新增都会阻止打包，没有豁免列表。
 
-执行 `python3 scripts/check_upstream.py` 可离线验证当前源码与这份锁定清单一致。构建脚本也强制运行此校验，任一文件改动或新增都将阻止打包。需要核验清单来源时，可从上述固定提交下载文件独立计算 SHA-256；清单不是上游签名。
+`upstream-manifest.json` 记录逐文件来源及哈希。图片辅助提取仍来自此前固定的 v2.8.17 提交，单独标注；`baseline_sha256` 留存 v2.8.11 历史记录。哈希清单不是上游签名。
 
-## 使用原版的部分
+## 原样沿用的协议实现
 
-原样使用 `basispoints.Prepare`、`Bridge.Stream` 和 `ReplayCache`，包括上游地址、请求体白名单、模型/推理档位转换、原有 developer 工具目录提示词、run_officejs 工具转换、历史回放、工具 item ID 兼容、SSE 协议转换等。工具目录中的提示词来自上游文件，不是本地工具自行设计。
+请求准备、工具目录提示、code/cmd/custom 原始文本传输、完整调用恢复、schema 校验、整批验证与暂存回放、历史重建、SSE 转换、结构化输出验证及两类原生工具纠错均由原生模块实现。v2.9.3 同时包含多智能体消息归属转换、历史图片处理、工具截图内联和重复工具声明校验。
 
-原版明确拒绝结构化输出。0.1.1 本地增加的 schema 提示词、JSON 校验及延迟消息事件已经撤掉。不能用“修好了标题 400”描述 0.1.2；这里只准确解释原版限制，保留其拒绝行为。
+格式纠错最多两次；首轮未知工具重生成最多一次，且流式客户端已经收到正文、可见推理摘要或拒绝内容后禁止重新生成整段回答。已知目标的局部工具纠错保持原有边界。工具需整批验证后才下发；普通文字继续流式传输。上游字节持续增长不代表已产生可下发的工具调用。
 
-## 为独立运行编写的外壳
+## 宿主接入对齐
 
-以下是本地工具代码，不冒称为 Sub2API 原版源码：
+`internal/gateway/` 根据同一提交的宿主源码移植，属于适配代码，不声称逐字节不变：
 
-- `app/` 与 `windows/`：Swift/AppKit 和 C#/WinForms 窗口、启停按钮、脱敏状态，以及供 AiMaMi 使用的地址/Key/模型 ID 复制按钮。
-- `internal/identity/`：读取 Codex 当前账号；原平台使用数据库账号及自己的 OAuth 生命周期。
-- `internal/relayconfig/`：持久化本地端口和中转 API Key。`internal/localconfig/` 只保留旧版备份的迁移恢复能力，新版不调用配置接管。
-- `internal/gateway/` 和 `cmd/`：127.0.0.1 HTTP 服务、随机访问密钥、启动/退出、网络连接和状态展示。
+- `NativeImages.PrepareWithCatalog` 接入可信会话的工具目录继承；上传图片后调用 `Bridge.Reprepare`，保持本请求已校验的工具目录快照。
+- 会话身份依次识别 thread-id、turn metadata、window ID、client_metadata，再回退到显式 session/conversation 头或 prompt_cache_key；memory 和无线程元数据的 subagent 请求按原生规则隔离。匿名请求不启用跨请求回放、目录或附件缓存。归一化身份同步到 prompt_cache_key。
+- 星桥没有数据库 API key/account ID，作用域使用当前账号、本地 Key、身份和执行道的 JSON 元组 SHA-256，代替上游平台 ID 和 xxhash；这会改变键值，不改变身份优先级及隔离语义。
+- StreamWithRepairs 回调沿用原生纠错上下文、同账号及累积历史；已发送请求不因网络失败重放。
+- HTTP 400 明确报告 invalid_encrypted_content 时，使用原生恢复函数只移除不透明 reasoning，并在同账号、同路由重试一次。保留用户消息、工具结果和图片；有 compaction 或加密正文时不删历史、不恢复。恢复函数及错误提取器从上游抽离，仅调整包名和文件位置。
+- 保留原生 response.failed / response.incomplete / error 流事件和错误字段；UI/导出日志只记录固定分类，不复制错误正文。非流式失败仍返回 HTTP 502。
+- 按原生发送 `: keepalive` SSE 注释和 X-Accel-Buffering: no。星桥仍先发送一个注释立即建立本地流，随后每 15 秒发送一次。
+- HTTP/2 空闲 10 秒主动 PING，5 秒无应答关闭失活连接；使用 Go 标准库 HTTP2Config 实现上游 x/net/http2 的相同参数。明确的 HTTP 代理 H2 EOF/reset/协议故障仅影响后续同代理请求，试用 H1 一分钟，不重放失败请求；取消、普通 EOF、应用错误不触发降级。保留独立 H1/H2 连接池；本地最多记录 256 个代理摘要。
+- 等待响应头调整为原生默认 300 秒；附件上传仍为 60 秒。明确 Free 套餐按原生拒绝，未知套餐不会误判。
 
-转发外壳参照原项目 `backend/internal/service/openai_excel_bps.go`，使用相同 BPS 地址、上游请求头和协议模块。原平台的 Gin 路由、数据库、账号池、计费、调度、Ops 和共享 HTTP 客户端没有搬入。它不是整个 Sub2API 服务的原封不动独立二进制。
+宿主参考文件路径见 manifest 的 host_adapter_sources。独立桌面仍使用本地监听、固定 gpt-6-astra、手动启动、8 并发和请求体内存预算、20 分钟总时限及 15 秒写入时限。账号登录与刷新仍由 Codex 管理；不会写入登录文件。
 
-需明确保留的宿主差异：客户端使用独立中转 API Key，由服务端每请求读取当前账号；不做模型映射和自动账号切换；按本地账号与明确线程 ID 隔离回放缓存，无明确线程时隔离每次请求；并发上限 8、请求体上限 64 MiB、请求头等待 45 秒、总时限 20 分钟；本地转发按完整 SSE 帧写出，15 秒发送合法 `response.in_progress` 心跳，发送失败/客户端取消单独归类；上游错误只保留状态分类、错误码和字段名，不返回可能回显输入的正文。本地 shell 不向原版协议追加兼容提示词或伪造模型结果。
+## 未启用的平台能力
 
-原平台已经有 15 秒心跳及客户端断开处理。早期本地外壳遗漏这些处理导致误报，不能归咎于原版协议。当前修复保留在宿主层；文本与工具核心保持原样，图片扩展来源见下文。
+不搬入平台数据库、账号池切换、计费、OAuth 刷新、403 自动停用/恢复探测或 Mihomo 节点调度。星桥只有当前账号和本机代理；401/403/429 不自动切换账号。原生图片数量策略默认 off，保持手动 compact；不启用自动图片压缩、忽略图片或忽略加密正文等可选功能，避免静默丢失上下文。
 
-## 验证范围
+v2.9.3 可选的 gpt-image-2 生图通道不在本次固定 gpt-6-astra 的工具范围内。图片输入/工具截图与图片生成是不同能力。不搬入 route.go / route_test.go 或公网 image_relay 服务。
 
-源码逐文件哈希校验、原版协议测试、本地模拟上游及配置恢复测试、原生应用构建。未进行真实账号凭据联调，不能保证上游账号可用性或模型质量提高。
+## 验证边界
+
+本地合成请求覆盖原生协议、宿主会话及目录、图片混合输入、有限恢复、错误保留、取消和传输降级。没有使用真实账号请求 BPS，不能保证用户原会话已复现、上游可用或完全不会等待。构建、竞态检测和审核记录见 [v2.9.3 对齐审查](native-v2.9.3-review.md)。
 
 ## 0.2.1 接入调整
 

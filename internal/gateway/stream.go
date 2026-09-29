@@ -20,9 +20,8 @@ const (
 	codeConnection     = "upstream_connection_failed"
 	codeResponseFailed = "bps_response_failed"
 	codeUnsupported    = "unsupported_bps_request"
-	// SSE comments are ignored by eventsource parsers. Use a valid Responses
-	// event so clients with event-level idle timers observe the keepalive.
-	sseHeartbeatFrame = "event: response.in_progress\ndata: {\"type\":\"response.in_progress\"}\n\n"
+	// 原生使用 SSE 注释保活，不伪造 Responses 生命周期事件。
+	sseHeartbeatFrame = ": keepalive\n\n"
 )
 
 type streamFrame struct {
@@ -104,6 +103,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 	if stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
 		if err := writeFrame(w, sseHeartbeatFrame); err != nil {
 			result.Code = codeCancelled
 			result.Cancelled = true
@@ -150,7 +150,9 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 			return
 		}
 		terminal := ""
+		toolDone := false
 		var final json.RawMessage
+		var failurePayload json.RawMessage
 		for _, line := range strings.Split(frame.text, "\n") {
 			if !strings.HasPrefix(line, "data: ") {
 				continue
@@ -158,20 +160,27 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 			var event struct {
 				Type     string          `json:"type"`
 				Response json.RawMessage `json:"response"`
+				Item     struct {
+					Type string `json:"type"`
+				} `json:"item"`
 			}
 			if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event) != nil {
 				continue
 			}
+			toolDone = event.Type == "response.output_item.done" && (event.Item.Type == "function_call" || event.Item.Type == "custom_tool_call")
 			switch event.Type {
 			case "response.completed", "response.failed", "response.incomplete", "error":
 				terminal = event.Type
 				final = event.Response
+				failurePayload = json.RawMessage(strings.TrimPrefix(line, "data: "))
 			}
 		}
 		if terminal != "" && terminal != "response.completed" {
 			result.Code = codeResponseFailed
-			result.Message = "BPS 响应失败或协议转换未通过校验，请重试；持续出现时可恢复原配置。"
-			frame.text = failedFrame(result.Code, result.Message)
+			// 保留原生终止事件及其错误字段，让客户端按原协议处理失败。
+			traceFrom(ctx).terminalFailure(terminal, failurePayload)
+			result.UpstreamCode = nativeFailureCode(failurePayload)
+			result.Message = "原生 BPS 响应未完成：" + terminal + " · " + result.UpstreamCode
 		}
 		if stream {
 			if err := writeFrame(w, frame.text); err != nil {
@@ -180,6 +189,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 				return
 			}
 		}
+		traceFrom(ctx).forwarded(stream, toolDone)
 		if terminal == "" {
 			continue
 		}
@@ -196,6 +206,9 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 				result.Cancelled = true
 				return
 			}
+		}
+		if !stream {
+			traceFrom(ctx).forwarded(true, false)
 		}
 		result.Success = true
 		result.Status = 200

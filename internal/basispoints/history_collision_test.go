@@ -85,7 +85,7 @@ func TestCustomHistorySignaturePreservesExactRawInput(t *testing.T) {
 	first := object{"type": "custom_tool_call", "call_id": "call_1", "name": "patch", "namespace": "files", "input": "line one\r\n\tline two \\n"}
 	changed := object{"type": "custom_tool_call", "call_id": "call_1", "name": "patch", "namespace": "files", "input": "line one\n\tline two \\n"}
 	cache := new(ReplayCache)
-	native, err := rebuildNativeHistoryCall(first)
+	native, err := (&Bridge{}).rebuildNativeHistoryCall(first)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -171,3 +171,19 @@ func TestNestedAndCustomAliasesRejectAmbiguity(t *testing.T) {
 		}
 	}
 }
+
+func TestRecoverTransportEnvelopeFromWrapper(t *testing.T) {
+	catalog := map[string]tool{"functions.exec": {Name: "exec", Kind: "function"}}
+	for _, raw := range []string{
+		`functions.exec({"name":"functions.exec","arguments":{"cmd":["pwd"]}})`,
+		`The model returned: {"name":"functions.exec","arguments":{"cmd":["pwd"]}}`,
+	} {
+		got, ok := recoverTransportEnvelope(raw, catalog)
+		if !ok || got["name"] != "functions.exec" {
+			t.Fatalf("wrapper was not recovered: %q -> %#v", raw, got)
+		}
+	}
+	if _, ok := recoverTransportEnvelope(`prefix {"name":"functions.exec"} and {"name":"functions.exec"}`, catalog); ok {
+		t.Fatal("ambiguous multiple envelopes must remain rejected")
+	}
+}

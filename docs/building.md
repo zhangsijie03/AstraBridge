@@ -4,7 +4,7 @@
 
 ## macOS
 
-需要 macOS 13+、Go 1.23+、Python 3、Xcode Command Line Tools。
+需要 macOS 13+、Go 1.27+、Python 3、Xcode Command Line Tools。
 
 ```sh
 python3 scripts/check_upstream.py
@@ -22,7 +22,7 @@ ditto -c -k --sequesterRsrc --keepParent dist/AstraBridge.app "dist/AstraBridge-
 
 ## Windows
 
-需要 Windows 10/11 x64、Go 1.23+、Python 3、.NET 8 SDK；发布后的应用自带运行时。
+需要 Windows 10/11 x64、Go 1.27+、Python 3、.NET 8 SDK；发布后的应用自带运行时。
 
 ```powershell
 python scripts/check_upstream.py

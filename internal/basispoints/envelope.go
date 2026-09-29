@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -150,6 +151,66 @@ func decodeTransportEnvelope(value any) (object, error) {
 		value = outer["code"]
 	}
 	return nil, fmt.Errorf("basispoints tool transport exceeds two nested wrappers")
+}
+
+var catalogInvocation = regexp.MustCompile(`^(?:(?:return\s+)?await\s+|return\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*\(`)
+
+// recoverTransportEnvelope accepts one complete catalog invocation whose sole
+// argument is a JSON literal. It never evaluates code or extracts an object from
+// a program, batch, incomplete call or trailing text. The callee selects the tool;
+// fields named name/arguments inside the literal remain ordinary tool arguments.
+func recoverTransportEnvelope(value any, catalog map[string]tool) (object, bool) {
+	raw, ok := value.(string)
+	if !ok || len(raw) > maxEnvelopeBytes {
+		return nil, false
+	}
+	raw = strings.TrimSpace(raw)
+	match := catalogInvocation.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		// Retain the existing complete JSON/fence/prose forms without searching
+		// arbitrary text for an executable-looking object.
+		envelope, err := decodeTransportEnvelope(raw)
+		if err != nil {
+			return nil, false
+		}
+		name, err := envelopeName(envelope)
+		_, known := catalog[name]
+		return envelope, err == nil && known
+	}
+	name := match[1]
+	info, known := catalog[name]
+	if !known {
+		name = strings.TrimPrefix(name, "functions.")
+		info, known = catalog[name]
+	}
+	if !known {
+		return nil, false
+	}
+	argument := raw[len(match[0]):]
+	decoder := json.NewDecoder(strings.NewReader(argument))
+	decoder.UseNumber()
+	var literal any
+	if decoder.Decode(&literal) != nil {
+		return nil, false
+	}
+	tail := strings.TrimSpace(argument[decoder.InputOffset():])
+	if !strings.HasPrefix(tail, ")") {
+		return nil, false
+	}
+	if tail = strings.TrimSpace(tail[1:]); tail != "" && tail != ";" {
+		return nil, false
+	}
+	switch info.Kind {
+	case "function":
+		if args, ok := literal.(object); ok && args != nil {
+			return object{"name": name, "arguments": args}, true
+		}
+	case "custom":
+		if input, ok := literal.(string); ok {
+			return object{"name": name, "input": input}, true
+		}
+	}
+	return nil, false
 }
 
 func envelopeName(envelope object) (string, error) {

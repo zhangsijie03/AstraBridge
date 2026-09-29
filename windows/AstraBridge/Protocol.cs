@@ -16,7 +16,7 @@ internal static class Product
 
 internal enum EngineAction { Start, Stop, Probe, Quit }
 internal enum EnginePhase { Idle, Testing, Enabled, Stopped, Error }
-internal enum EventKind { State, Request, Probe }
+internal enum EventKind { State, Request, Probe, Trace }
 internal sealed record EngineCommand(EngineAction Action);
 internal sealed record GatewayResult(
     bool Success, bool Cancelled, string? Message, string? Model,
@@ -26,7 +26,7 @@ internal sealed record EngineEvent(
     string? Model, int? Port, long Requests, string? Backup,
     [property: JsonPropertyName("base_url")] string? BaseUrl,
     [property: JsonPropertyName("api_key")] string? ApiKey,
-    GatewayResult? Result);
+    GatewayResult? Result, TransferTrace? Trace = null);
 
 internal static class Protocol
 {
@@ -46,7 +46,8 @@ internal static class Protocol
         using JsonDocument document = JsonDocument.Parse(line);
         if (!document.RootElement.TryGetProperty("type", out _) || value.Requests < 0 ||
             (value.Type == EventKind.State && value.Phase is null) ||
-            (value.Type == EventKind.Request && value.Result is null))
+            (value.Type == EventKind.Request && value.Result is null) ||
+            (value.Type == EventKind.Trace && (value.Trace is null || string.IsNullOrEmpty(value.Trace.RequestId))))
             throw new JsonException("后台状态缺少必要字段");
         if (value.BaseUrl is { } url &&
             (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) || uri.Scheme != Uri.UriSchemeHttp || uri.Host != "127.0.0.1"))

@@ -9,14 +9,15 @@ export GOOS=darwin GOARCH=arm64 CGO_ENABLED=0
 APP="${BPS_APP_PATH:-dist/AstraBridge.app}"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" .build
 "$GO_BIN" build -mod=vendor -trimpath -o "$APP/Contents/Resources/bps-local" ./cmd/bps-local
-swiftc -target arm64-apple-macosx13.0 -swift-version 5 -O -module-cache-path .build/swift-cache app/Interface.swift app/main.swift -o "$APP/Contents/MacOS/AstraBridge" -framework AppKit -framework CFNetwork
+swiftc -target arm64-apple-macosx13.0 -swift-version 5 -O -module-cache-path .build/swift-cache app/Interface.swift app/TransferLog.swift app/main.swift -o "$APP/Contents/MacOS/AstraBridge" -framework AppKit -framework CFNetwork
 swiftc -module-cache-path .build/swift-cache scripts/make_icon.swift -o .build/make-icon
 .build/make-icon .build/AstraBridge.iconset
 iconutil -c icns .build/AstraBridge.iconset -o "$APP/Contents/Resources/AstraBridge.icns"
 cp README.md LICENSE NOTICE VERSION "$APP/Contents/Resources/"
 cp upstream-manifest.json "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/docs"
-cp docs/source-provenance.md docs/native-images.md docs/building.md docs/verification.md "$APP/Contents/Resources/docs/"
+cp docs/source-provenance.md docs/native-images.md docs/building.md docs/verification.md docs/native-v2.9.3-review.md "$APP/Contents/Resources/docs/"
+cp "docs/releases/${VERSION}.md" "$APP/Contents/Resources/docs/release-notes.md"
 cp -R licenses "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -26,7 +27,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleIdentifier</key><string>local.bps.desktop</string>
 <key>CFBundleName</key><string>AstraBridge</string>
 <key>CFBundleDisplayName</key><string>AstraBridge</string>
-<key>CFBundleVersion</key><string>12</string>
+<key>CFBundleVersion</key><string>16</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleIconFile</key><string>AstraBridge</string>
 <key>CFBundlePackageType</key><string>APPL</string>

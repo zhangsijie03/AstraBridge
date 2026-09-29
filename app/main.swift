@@ -25,7 +25,7 @@ private struct GatewayResult: Decodable {
 }
 private struct EngineEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, phase, message, account, model, port, requests, backup, result
+        case type, phase, message, account, model, port, requests, backup, result, trace
         case baseURL = "base_url"
         case apiKey = "api_key"
     }
@@ -40,11 +40,14 @@ private struct EngineEvent: Decodable {
     let requests: Int
     let backup: String?
     let result: GatewayResult?
+    let trace: TransferTrace?
 }
 private struct Command: Encodable { let action: EngineAction }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
+    private let transferLog = TransferLogWindow()
+    private let transferLabel = NSTextField(labelWithString: "暂无进行中的转发")
     private var process: Process?
     private let input = Pipe()
     private let output = Pipe()
@@ -264,8 +267,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add(separator(), gap: 14)
         let help = NSButton(title: "接入指南", target: self, action: #selector(openHelp))
         let directory = NSButton(title: "配置目录", target: self, action: #selector(openBackup))
-        [help, directory].forEach { $0.bezelStyle = .inline; $0.font = .systemFont(ofSize: 11) }
-        add(stack([spacer(), directory, help], spacing: 12))
+        let logs = NSButton(title: "转发日志", target: self, action: #selector(openTransferLog))
+        transferLabel.font = .systemFont(ofSize: 10)
+        transferLabel.textColor = .secondaryLabelColor
+        transferLabel.lineBreakMode = .byTruncatingTail
+        [help, directory, logs].forEach { $0.bezelStyle = .inline; $0.font = .systemFont(ofSize: 11) }
+        add(stack([logs, transferLabel, spacer(), directory, help], spacing: 12))
         window.makeKeyAndOrderFront(nil)
         buildMenu()
         setBusy(true)
@@ -315,6 +322,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 else {
                     let wasActive = self.active
                     self.active = false
+                    self.transferLog.stopped()
+                    self.transferLabel.stringValue = "引擎已退出 · 日志已保留"
                     self.setBusy(false)
                     if wasActive { self.showError("后台进程已停止。请重新打开工具恢复中转服务。") }
                 }
@@ -331,7 +340,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             catch { showError("后台返回了无法识别的状态，请重新打开工具") }
         }
     }
+    @objc private func openTransferLog() { transferLog.show() }
     private func apply(_ event: EngineEvent) {
+        if let trace = event.trace {
+            transferLog.append(trace)
+            if !active { transferLog.stopped() }
+            transferLabel.stringValue = transferLog.summary
+            transferLabel.toolTip = trace.summary
+            return
+        }
         defer { detailLabel.toolTip = detailLabel.stringValue }
         if let baseURL = event.baseURL { relayBaseURL = baseURL; routeLabel.stringValue = baseURL }
         if let apiKey = event.apiKey { relayAPIKey = apiKey; keyStateLabel.stringValue = "•••• •••• •••• ••••" }
@@ -372,6 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             updateStatusIcon("checkmark.circle.fill", color: InterfaceStyle.accent); setBusy(false)
 
         case .stopped:
+            transferLog.stopped(); transferLabel.stringValue = "中转已停止 · 日志已保留"
             active = false; statusLabel.stringValue = "中转已停止"
             updateStatusIcon("pause.circle.fill", color: .secondaryLabelColor); setBusy(false)
         case .error:
@@ -449,11 +467,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openAbout() {
         let alert = NSAlert()
         alert.messageText = "\(Product.name) · \(Product.chineseName)"
-        alert.informativeText = "版本 \(Product.version)\nAiMaMi 的本地 BPS 连接工具。\n\n文本与工具协议保留 Sub2API v2.8.11；图片附件支持来自固定提交 26b324b。源码来源分别校验。\n原名 BPS Local；升级继续沿用已有连接配置。"
+        alert.informativeText = "版本 \(Product.version)\nAiMaMi 的本地 BPS 连接工具。\n\n文本、工具与图片协议采用 Sub2API v2.9.3，固定提交 faf58e4。原生源码逐文件校验。\n原名 BPS Local；升级继续沿用已有连接配置。"
         alert.addButton(withTitle: "完成")
         alert.beginSheetModal(for: window)
     }
-    @objc private func openSource() { NSWorkspace.shared.open(URL(string: "https://github.com/ranxi2001/sub2api/blob/v2.8.11/docs/excel-bps.md")!) }
+    @objc private func openSource() { NSWorkspace.shared.open(URL(string: "https://github.com/ranxi2001/sub2api/blob/v2.9.3/docs/excel-bps.md")!) }
     @objc private func openBackup() {
         if FileManager.default.fileExists(atPath: dataDirectory.path) { NSWorkspace.shared.open(dataDirectory) }
         else if let readme = Bundle.main.url(forResource: "README", withExtension: "md") { NSWorkspace.shared.open(readme) }

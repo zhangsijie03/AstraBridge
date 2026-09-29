@@ -38,10 +38,11 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses') -Destination $package -Recurse
     New-Item -ItemType Directory -Path (Join-Path $package 'docs') -Force | Out-Null
-    foreach ($name in @('source-provenance.md', 'native-images.md', 'building.md', 'verification.md')) {
+    foreach ($name in @('source-provenance.md', 'native-images.md', 'building.md', 'verification.md', 'native-v2.9.3-review.md')) {
         Copy-Item -LiteralPath (Join-Path $projectRoot "docs/$name") -Destination (Join-Path $package 'docs')
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'windows/README.md') -Destination (Join-Path $package 'docs/windows.md')
+    Copy-Item -LiteralPath (Join-Path $projectRoot "docs/releases/$version.md") -Destination (Join-Path $package 'docs/release-notes.md')
 
     # 自包含运行时随包分发，保留 SDK 提供的 .NET 许可证与第三方告知。
     $dotnetCommand = Get-Command $DotnetBin -ErrorAction Stop

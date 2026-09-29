@@ -71,6 +71,14 @@ func TestPrepareWireShapeAndDeterminism(t *testing.T) {
 	if bridge.RequestedEffort != "max" || bridge.Effort != "xhigh" {
 		t.Fatal("requested and effective effort must remain distinguishable")
 	}
+	management, ok := first["context_management"].([]any)
+	if !ok || len(management) != 1 {
+		t.Fatal("default context compaction contract missing")
+	}
+	entry, _ := management[0].(object)
+	if entry["type"] != "compaction" || fmt.Sprint(entry["compact_threshold"]) != "920000" {
+		t.Fatalf("unexpected default compaction threshold: %+v", entry)
+	}
 	for _, field := range []string{"tools", "reasoning", "include", "service_tier", "instructions"} {
 		if _, exists := first[field]; exists {
 			t.Fatalf("unsupported field leaked: %s", field)
@@ -254,7 +262,7 @@ func TestMissingOriginalToolItemCannotBeFabricatedFromOutputOnly(t *testing.T) {
 	source["tools"] = []any{object{"type": "function", "name": "get_weather"}}
 	source["input"] = []any{message("user", "weather"), object{"type": "function_call_output", "call_id": "call_missing", "output": "18 C"}}
 	raw, _ := json.Marshal(source)
-	if _, _, err := Prepare(raw, "account/key", new(ReplayCache)); err == nil || !strings.Contains(err.Error(), "original tool item is unavailable") {
+	if _, _, err := Prepare(raw, "account/key", new(ReplayCache)); err == nil || !strings.Contains(err.Error(), "original tool item is unavailable") || !strings.Contains(err.Error(), "path=input[1]") || !strings.Contains(err.Error(), "matching complete tool call") || strings.Contains(err.Error(), "call_missing") {
 		t.Fatalf("missing native identity must produce an actionable error: %v", err)
 	}
 }

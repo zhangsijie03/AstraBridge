@@ -8,6 +8,8 @@ internal sealed class MainForm : Form
 {
     private readonly bool preview;
     private readonly EngineClient engine = new();
+    private readonly TransferLog transferLog = new();
+    private readonly Label transferSummary = InterfaceStyle.Label("暂无进行中的转发", 9, secondary: true);
     private readonly ToolTip tips = new();
     private readonly Label status = InterfaceStyle.Label("正在准备", 16, true);
     private readonly Label detail = InterfaceStyle.Label("正在读取本地配置…", 10, secondary: true);
@@ -47,7 +49,7 @@ internal sealed class MainForm : Form
         copyKey.Click += (_, _) => Copy(relayKey, copyKey);
         copyModel.Click += (_, _) => Copy(Product.Model, copyModel);
         engine.Received += value => OnUi(() => Apply(value));
-        engine.Faulted += message => OnUi(() => { active = false; ShowError(message); });
+        engine.Faulted += message => OnUi(() => { transferLog.Stopped(); transferSummary.Text = "引擎已退出 · 日志已保留"; active = false; ShowError(message); });
         FormClosing += CloseAsync;
         Shown += (_, _) => InitializeEngine();
         UpdateControls();
@@ -106,8 +108,9 @@ internal sealed class MainForm : Form
         var links = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
         var help = InterfaceStyle.Button("接入指南"); help.Click += (_, _) => ShowHelp();
         var directory = InterfaceStyle.Button("配置目录"); directory.Click += (_, _) => OpenDirectory();
-        links.Controls.Add(help); links.Controls.Add(directory);
-        Add(root, Columns(InterfaceStyle.Label("v" + Product.Version, 9, secondary: true), links), 0);
+        var logs = InterfaceStyle.Button("转发日志"); logs.Click += (_, _) => { transferLog.Show(this); transferLog.BringToFront(); };
+        links.Controls.Add(help); links.Controls.Add(directory); links.Controls.Add(logs);
+        Add(root, Columns(transferSummary, links), 0);
     }
 
     private static TableLayoutPanel Stack() => new()
@@ -153,6 +156,7 @@ internal sealed class MainForm : Form
     private void Apply(EngineEvent value)
     {
         if (closing) return;
+        if (value.Trace is { } trace) { transferLog.Append(trace); if (!active) transferLog.Stopped(); transferSummary.Text = transferLog.Summary; return; }
         if (value.BaseUrl is { } url) { relayUrl = url; baseUrl.Text = url; tips.SetToolTip(baseUrl, url); }
         if (value.ApiKey is { } key) { relayKey = key; apiKey.Text = "•••• •••• •••• ••••"; }
         if (value.Account is { } maskedAccount) account.Text = maskedAccount;
@@ -171,7 +175,7 @@ internal sealed class MainForm : Form
         {
             case EnginePhase.Idle: active = false; busy = false; status.Text = "准备就绪"; break;
             case EnginePhase.Enabled: active = true; busy = false; status.Text = "中转运行中"; break;
-            case EnginePhase.Stopped: active = false; busy = false; status.Text = "中转已停止"; break;
+            case EnginePhase.Stopped: transferLog.Stopped(); transferSummary.Text = "中转已停止 · 日志已保留"; active = false; busy = false; status.Text = "中转已停止"; break;
             case EnginePhase.Testing: busy = true; status.Text = "正在测试连接"; probe.Text = "测试中…"; break;
             // 探测失败不会关闭已运行的中转；保留停止按钮以便用户明确结束服务。
             case EnginePhase.Error: ShowError(value.Message ?? "操作失败"); return;
@@ -241,7 +245,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) tips.Dispose();
+        if (disposing) { tips.Dispose(); transferLog.Dispose(); }
         base.Dispose(disposing);
     }
 

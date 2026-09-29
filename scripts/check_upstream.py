@@ -16,11 +16,18 @@ for name, digest in expected.items():
     path = package / name
     if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
         errors.append(f"Differs from upstream: {name}")
+transport = manifest["native_transport"]
+transport_root = root / transport["local_path"]
+transport_files = {p.name for p in transport_root.iterdir() if p.is_file()}
+if transport_files != set(transport["sha256"]):
+    errors.append("Native transport file list differs from manifest")
+for name, digest in transport["sha256"].items():
+    path = transport_root / name
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        errors.append(f"Native transport differs from upstream: {name}")
 if errors:
     raise SystemExit("\n".join(errors))
-native = manifest.get("native_images")
-if native:
-    print(f"PASS: {len(expected)} locked files verified: 21 unchanged {manifest['tag']} files, "
-          f"4 native-image files from {native['commit']}, 1 documented helper extraction")
-else:
-    print(f"PASS: all {len(expected)} protocol files match {manifest['tag']} ({manifest['commit']}) byte-for-byte")
+print(f"PASS: {len(expected)} locked files verified: "
+      f"{len(manifest['unmodified_files'])} unchanged {manifest['tag']} files "
+      f"({manifest['commit']}), 1 documented image helper extraction; "
+      f"{len(transport['sha256'])} unchanged native transport files")

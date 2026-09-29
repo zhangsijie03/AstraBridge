@@ -46,17 +46,18 @@ const (
 )
 
 type Event struct {
-	BaseURL  string          `json:"base_url,omitempty"`
-	APIKey   string          `json:"api_key,omitempty"`
-	Type     string          `json:"type"`
-	Phase    Phase           `json:"phase,omitempty"`
-	Message  string          `json:"message,omitempty"`
-	Account  string          `json:"account,omitempty"`
-	Model    string          `json:"model,omitempty"`
-	Port     int             `json:"port,omitempty"`
-	Requests int64           `json:"requests"`
-	Backup   string          `json:"backup,omitempty"`
-	Result   *gateway.Result `json:"result,omitempty"`
+	Trace    *gateway.TraceEvent `json:"trace,omitempty"`
+	BaseURL  string              `json:"base_url,omitempty"`
+	APIKey   string              `json:"api_key,omitempty"`
+	Type     string              `json:"type"`
+	Phase    Phase               `json:"phase,omitempty"`
+	Message  string              `json:"message,omitempty"`
+	Account  string              `json:"account,omitempty"`
+	Model    string              `json:"model,omitempty"`
+	Port     int                 `json:"port,omitempty"`
+	Requests int64               `json:"requests"`
+	Backup   string              `json:"backup,omitempty"`
+	Result   *gateway.Result     `json:"result,omitempty"`
 }
 type output struct{ mu sync.Mutex }
 
@@ -67,15 +68,15 @@ func (o *output) send(e Event) {
 }
 
 type controller struct {
-	settings *relayconfig.Settings
-	baseURL  string
-	ctx      context.Context
-	manager  *localconfig.Manager
-	authPath string
-	model    string
-	out      *output
-	server   *http.Server
-	count    atomic.Int64
+	settings  *relayconfig.Settings
+	baseURL   string
+	ctx       context.Context
+	manager   *localconfig.Manager
+	authPath  string
+	model     string
+	out       *output
+	server    *http.Server
+	count     atomic.Int64
 	lastProbe time.Time
 }
 
@@ -213,9 +214,29 @@ func (c *controller) start() error {
 		}
 		c.out.send(Event{Type: "request", Result: &r, Requests: c.count.Load()})
 	})
+	// UI 日志使用有界队列，界面处理缓慢时丢弃诊断快照，不阻塞 BPS 转发。
+	traceEvents := make(chan gateway.TraceEvent, 256)
+	traceCtx, stopTrace := context.WithCancel(c.ctx)
+	g.SetTraceObserver(func(event gateway.TraceEvent) {
+		select {
+		case traceEvents <- event:
+		default:
+		}
+	})
+	go func() {
+		for {
+			select {
+			case <-traceCtx.Done():
+				return
+			case event := <-traceEvents:
+				c.out.send(Event{Type: "trace", Trace: &event, Requests: c.count.Load()})
+			}
+		}
+	}()
 	c.server = &http.Server{Handler: g, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 << 10, ErrorLog: log.New(io.Discard, "", 0)}
 	server := c.server
 	go func() {
+		defer stopTrace()
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			c.status(phaseError, "本地监听意外停止，请退出后重新启动")
 		}

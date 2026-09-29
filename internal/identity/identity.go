@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const chatGPTPlanFree = "free"
+
 type Account struct {
 	AccountID   string `json:"-"`
 	AccessToken string `json:"-"`
@@ -19,6 +21,7 @@ type claims struct {
 	Exp   int64  `json:"exp"`
 	Auth  struct {
 		AccountID string `json:"chatgpt_account_id"`
+		PlanType  string `json:"chatgpt_plan_type"`
 	} `json:"https://api.openai.com/auth"`
 	Profile struct {
 		Email string `json:"email"`
@@ -49,6 +52,10 @@ func FromToken(token, accountID string) (Account, error) {
 	}
 	if c.Exp <= time.Now().Unix() {
 		return Account{}, errors.New("登录凭据已过期，请先在 Codex 新建聊天以刷新登录状态")
+	}
+	// 与原生套餐准入一致：明确为 Free 时拒绝，缺失套餐字段不误判。
+	if strings.EqualFold(strings.TrimSpace(c.Auth.PlanType), chatGPTPlanFree) {
+		return Account{}, errors.New("当前账号为 Free 套餐，原生 BPS 通道不支持该套餐")
 	}
 	if accountID == "" {
 		accountID = c.Auth.AccountID

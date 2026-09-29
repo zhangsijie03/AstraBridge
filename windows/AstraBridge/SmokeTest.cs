@@ -14,7 +14,10 @@ internal static class SmokeTest
         EngineEvent request = Protocol.Read("""{"type":"request","requests":7,"result":{"success":true,"model":"gpt-6-astra","effort":"high","account":"de•••@example.com","warnings":[]}}""");
         if (request.Type != EventKind.Request || request.Requests != 7 || request.Result?.Success != true)
             throw new InvalidOperationException("请求事件解析失败");
-        foreach (string malformed in new[] { "{}", "null", "{\"type\":\"state\",\"phase\":\"unknown\"}",
+        EngineEvent trace = Protocol.Read("""{"type":"trace","requests":0,"trace":{"request_id":"R000001","time":"2026-09-29T12:00:00Z","stage":"streaming","message":"正在接收","elapsed_ms":35000,"quiet_ms":32000,"upstream_bytes":1024,"client_events":0,"tool_calls":0,"attempt":1,"http_status":200}}""");
+        if (trace.Trace is not { Stage: TransferStage.Streaming, QuietMs: 32000 } || !trace.Trace.Line.Contains("上游暂无新数据"))
+            throw new InvalidOperationException("转发日志事件解析失败");
+        foreach (string malformed in new[] { "{}", "null", "{\"type\":\"trace\",\"requests\":0}", "{\"type\":\"state\",\"phase\":\"unknown\"}",
             "{\"type\":\"request\",\"requests\":-1}", "{\"type\":\"state\",\"phase\":\"idle\",\"base_url\":\"https://example.com\"}" })
         {
             try { Protocol.Read(malformed); }
