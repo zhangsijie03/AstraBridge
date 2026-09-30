@@ -38,7 +38,7 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses') -Destination $package -Recurse
     New-Item -ItemType Directory -Path (Join-Path $package 'docs') -Force | Out-Null
-    foreach ($name in @('source-provenance.md', 'native-images.md', 'building.md', 'verification.md', 'native-v2.9.3-review.md')) {
+    foreach ($name in @('source-provenance.md', 'native-images.md', 'building.md', 'verification.md', 'native-v2.9.4-review.md', 'connection-and-compact-log-review.md')) {
         Copy-Item -LiteralPath (Join-Path $projectRoot "docs/$name") -Destination (Join-Path $package 'docs')
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'windows/README.md') -Destination (Join-Path $package 'docs/windows.md')

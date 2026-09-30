@@ -16,7 +16,7 @@ iconutil -c icns .build/AstraBridge.iconset -o "$APP/Contents/Resources/AstraBri
 cp README.md LICENSE NOTICE VERSION "$APP/Contents/Resources/"
 cp upstream-manifest.json "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/docs"
-cp docs/source-provenance.md docs/native-images.md docs/building.md docs/verification.md docs/native-v2.9.3-review.md "$APP/Contents/Resources/docs/"
+cp docs/source-provenance.md docs/native-images.md docs/building.md docs/verification.md docs/native-v2.9.4-review.md docs/connection-and-compact-log-review.md "$APP/Contents/Resources/docs/"
 cp "docs/releases/${VERSION}.md" "$APP/Contents/Resources/docs/release-notes.md"
 cp -R licenses "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -27,7 +27,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleIdentifier</key><string>local.bps.desktop</string>
 <key>CFBundleName</key><string>AstraBridge</string>
 <key>CFBundleDisplayName</key><string>AstraBridge</string>
-<key>CFBundleVersion</key><string>16</string>
+<key>CFBundleVersion</key><string>19</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleIconFile</key><string>AstraBridge</string>
 <key>CFBundlePackageType</key><string>APPL</string>

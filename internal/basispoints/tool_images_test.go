@@ -61,8 +61,13 @@ func TestToolImagesPreserveContentOrderAndAssociation(t *testing.T) {
 						content := mustTestValue[[]any](t, msg["content"])
 						require.Len(t, content, 5)
 						require.Contains(t, mustTestValue[object](t, content[0])["text"], "tool output")
-						require.Equal(t, first, content[2])
-						require.Equal(t, second, content[4])
+						if reference == "file_id" {
+							require.Equal(t, object{"type": "input_image", "file_id": "file-first"}, content[2])
+							require.Equal(t, object{"type": "input_image", "file_id": "file-second"}, content[4])
+						} else {
+							require.Equal(t, first, content[2])
+							require.Equal(t, second, content[4])
+						}
 						output := mustTestValue[[]any](t, result["output"])
 						require.Len(t, output, len(parts))
 						imageIndex := 0
@@ -216,7 +221,7 @@ func TestToolImagesNativeUploadReprepare(t *testing.T) {
 		require.NotContains(t, fmt.Sprint(result["output"]), "file-existing")
 		require.Contains(t, string(body), "file-uploaded", "the user image must still be uploaded")
 		content := mustTestValue[[]any](t, mustTestValue[object](t, items[len(items)-1])["content"])
-		require.Equal(t, object{"type": "input_image", "file_id": "file-existing", "detail": "original"}, content[2])
+		require.Equal(t, object{"type": "input_image", "file_id": "file-existing"}, content[2])
 		again, _, err := bridge.Reprepare(uploaded)
 		require.NoError(t, err)
 		require.JSONEq(t, string(body), string(again))

@@ -10,18 +10,22 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"bpslocal/internal/basispoints"
 )
 
 const (
-	maxStreamFrame     = 16 << 20
-	codeCancelled      = "client_cancelled"
-	codeTimeout        = "upstream_timeout"
-	codeIncomplete     = "upstream_stream_incomplete"
-	codeConnection     = "upstream_connection_failed"
-	codeResponseFailed = "bps_response_failed"
-	codeUnsupported    = "unsupported_bps_request"
-	// 原生使用 SSE 注释保活，不伪造 Responses 生命周期事件。
-	sseHeartbeatFrame = ": keepalive\n\n"
+	maxStreamFrame       = 16 << 20
+	codeCancelled        = "client_cancelled"
+	codeTimeout          = "upstream_timeout"
+	codeIncomplete       = "upstream_stream_incomplete"
+	codeConnection       = "upstream_connection_failed"
+	codeResponseFailed   = "bps_response_failed"
+	codeUnsupported      = "unsupported_bps_request"
+	codeModelUnavailable = "basispoints_model_unavailable"
+	// 原生 BPS 注释心跳只能维持字节链路；Codex 在 eventsource.next() 外计时，
+	// 注释不会重置其空闲计时。补充无业务含义的事件，不伪造文本、工具或生命周期。
+	sseHeartbeatFrame = ": keepalive\nevent: keepalive\ndata: {\"type\":\"keepalive\"}\n\n"
 )
 
 type streamFrame struct {
@@ -153,6 +157,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 		toolDone := false
 		var final json.RawMessage
 		var failurePayload json.RawMessage
+		var upstreamFailure *basispoints.UpstreamFailure
 		for _, line := range strings.Split(frame.text, "\n") {
 			if !strings.HasPrefix(line, "data: ") {
 				continue
@@ -169,7 +174,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 			}
 			toolDone = event.Type == "response.output_item.done" && (event.Item.Type == "function_call" || event.Item.Type == "custom_tool_call")
 			switch event.Type {
-			case "response.completed", "response.failed", "response.incomplete", "error":
+			case "response.completed", "response.failed", "response.cancelled", "response.incomplete", "error":
 				terminal = event.Type
 				final = event.Response
 				failurePayload = json.RawMessage(strings.TrimPrefix(line, "data: "))
@@ -177,10 +182,23 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 		}
 		if terminal != "" && terminal != "response.completed" {
 			result.Code = codeResponseFailed
-			// 保留原生终止事件及其错误字段，让客户端按原协议处理失败。
+			result.Status = http.StatusBadGateway
+			// 直接采用原生错误分类与脱敏，不再通过第二套 SSE 解析器猜测限流。
 			traceFrom(ctx).terminalFailure(terminal, failurePayload)
 			result.UpstreamCode = nativeFailureCode(failurePayload)
 			result.Message = "原生 BPS 响应未完成：" + terminal + " · " + result.UpstreamCode
+			upstreamFailure = basispoints.ParseUpstreamFailure(failurePayload)
+			if upstreamFailure != nil {
+				result.Status = upstreamFailure.Status
+				result.UpstreamType = upstreamFailure.Type
+				if upstreamFailure.Status == http.StatusTooManyRequests {
+					g.recordStreamRateLimit(ctx)
+				}
+				setModelUnavailable(result)
+			}
+			if limited := observedRateLimit(ctx); limited != nil {
+				limited.apply(result)
+			}
 		}
 		if stream {
 			if err := writeFrame(w, frame.text); err != nil {
@@ -195,7 +213,18 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 		}
 		if terminal != "response.completed" {
 			if !stream {
-				problem(w, 502, result.Code, result.Message)
+				if upstreamFailure != nil {
+					if limited := observedRateLimit(ctx); limited != nil && upstreamFailure.Status == http.StatusTooManyRequests {
+						w.Header().Set("Retry-After", limited.retryAfter)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(upstreamFailure.Status)
+					_ = json.NewEncoder(w).Encode(map[string]any{"error": upstreamFailure.Details()})
+				} else if limited := observedRateLimit(ctx); limited != nil {
+					limited.respond(w)
+				} else {
+					problem(w, 502, result.Code, result.Message)
+				}
 			}
 			return
 		}

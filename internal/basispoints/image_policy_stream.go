@@ -78,10 +78,10 @@ func WithCompactedWindow(ctx context.Context, upstream io.ReadCloser, window []a
 			if observed == nil {
 				observed, _ = p["usage"].(object)
 			}
-			if kind != "response.completed" && kind != "response.failed" && kind != "response.incomplete" {
+			if kind != "response.completed" && kind != "response.failed" && kind != "response.cancelled" && kind != "response.incomplete" {
 				copyNonzeroImageUsage(progressiveUsage, observed)
 			}
-			if response != nil && (kind == "response.completed" || kind == "response.failed" || kind == "response.incomplete") {
+			if response != nil && (kind == "response.completed" || kind == "response.failed" || kind == "response.cancelled" || kind == "response.incomplete") {
 				output, _ := response["output"].([]any)
 				response["output"] = append(append([]any{}, window...), output...)
 				current, _ := response["usage"].(object)
@@ -172,7 +172,7 @@ func ReadImageCompaction(reader io.Reader, observe func([]byte)) (map[string]any
 			return fmt.Errorf("image compaction returned an unexpected tool event")
 		}
 		switch kind {
-		case "response.completed", "response.failed", "response.incomplete", "error":
+		case "response.completed", "response.failed", "response.cancelled", "response.incomplete", "error":
 			response, _ = p["response"].(object)
 			completed = kind == "response.completed"
 			return io.EOF

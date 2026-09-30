@@ -9,7 +9,6 @@ internal sealed class MainForm : Form
     private readonly bool preview;
     private readonly EngineClient engine = new();
     private readonly TransferLog transferLog = new();
-    private readonly Label transferSummary = InterfaceStyle.Label("暂无进行中的转发", 9, secondary: true);
     private readonly ToolTip tips = new();
     private readonly Label status = InterfaceStyle.Label("正在准备", 16, true);
     private readonly Label detail = InterfaceStyle.Label("正在读取本地配置…", 10, secondary: true);
@@ -36,7 +35,7 @@ internal sealed class MainForm : Form
         Text = "AstraBridge · 星桥";
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Microsoft YaHei UI", 10);
-        ClientSize = new Size(720, 700);
+        ClientSize = new Size(720, 940);
         MinimumSize = new Size(650, 660);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = SystemColors.Window;
@@ -49,7 +48,7 @@ internal sealed class MainForm : Form
         copyKey.Click += (_, _) => Copy(relayKey, copyKey);
         copyModel.Click += (_, _) => Copy(Product.Model, copyModel);
         engine.Received += value => OnUi(() => Apply(value));
-        engine.Faulted += message => OnUi(() => { transferLog.Stopped(); transferSummary.Text = "引擎已退出 · 日志已保留"; active = false; ShowError(message); });
+        engine.Faulted += message => OnUi(() => { transferLog.Stopped(); active = false; ShowError(message); });
         FormClosing += CloseAsync;
         Shown += (_, _) => InitializeEngine();
         UpdateControls();
@@ -59,7 +58,7 @@ internal sealed class MainForm : Form
     {
         var root = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, AutoScroll = true, ColumnCount = 1, RowCount = 8,
+            Dock = DockStyle.Fill, AutoScroll = true, ColumnCount = 1, RowCount = 7,
             Padding = new Padding(28, 20, 28, 18), BackColor = SystemColors.Window
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -101,16 +100,17 @@ internal sealed class MainForm : Form
         count.Controls.Add(InterfaceStyle.Label("成功请求  ", 9, secondary: true)); count.Controls.Add(requests);
         account.AutoSize = false; account.AutoEllipsis = true; account.Size = new Size(360, 28);
         Add(root, Columns(account, count), 18);
-        var guide = Stack(); guide.Controls.Add(InterfaceStyle.Label("接入 AiMaMi", 10, true));
-        var instruction = InterfaceStyle.Label("中转注入 → 自定义中转模型，填入以上三项，协议选择 Responses。", 9, secondary: true);
-        instruction.MaximumSize = new Size(610, 0); guide.Controls.Add(instruction);
-        Add(root, guide, 12);
         var links = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
         var help = InterfaceStyle.Button("接入指南"); help.Click += (_, _) => ShowHelp();
         var directory = InterfaceStyle.Button("配置目录"); directory.Click += (_, _) => OpenDirectory();
-        var logs = InterfaceStyle.Button("转发日志"); logs.Click += (_, _) => { transferLog.Show(this); transferLog.BringToFront(); };
-        links.Controls.Add(help); links.Controls.Add(directory); links.Controls.Add(logs);
-        Add(root, Columns(transferSummary, links), 0);
+        links.Controls.Add(help); links.Controls.Add(directory);
+        var guide = Stack(); guide.Controls.Add(Columns(InterfaceStyle.Label("接入 AiMaMi", 10, true), links));
+        var instruction = InterfaceStyle.Label("中转注入 → 自定义中转模型，填入以上三项，协议选择 Responses。", 9, secondary: true);
+        instruction.MaximumSize = new Size(610, 0); guide.Controls.Add(instruction);
+        Add(root, guide, 16);
+        // 主窗口剩余高度交给日志；小屏下保留整页滚动，日志内容另有独立滚动条。
+        root.Controls.Add(transferLog, 0, root.RowStyles.Count);
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
     }
 
     private static TableLayoutPanel Stack() => new()
@@ -156,7 +156,7 @@ internal sealed class MainForm : Form
     private void Apply(EngineEvent value)
     {
         if (closing) return;
-        if (value.Trace is { } trace) { transferLog.Append(trace); if (!active) transferLog.Stopped(); transferSummary.Text = transferLog.Summary; return; }
+        if (value.Trace is { } trace) { transferLog.Append(trace); if (!active) transferLog.Stopped(); return; }
         if (value.BaseUrl is { } url) { relayUrl = url; baseUrl.Text = url; tips.SetToolTip(baseUrl, url); }
         if (value.ApiKey is { } key) { relayKey = key; apiKey.Text = "•••• •••• •••• ••••"; }
         if (value.Account is { } maskedAccount) account.Text = maskedAccount;
@@ -165,7 +165,12 @@ internal sealed class MainForm : Form
         {
             if (!active || busy) return;
             if (result.Account is { } resultAccount) account.Text = resultAccount;
-            status.Text = result.Success || result.Cancelled ? "中转运行中" : "最近请求未完成";
+            status.Text = result.Success || result.Cancelled ? "中转运行中" : result.Code switch
+            {
+                GatewayFailureCode.RateLimited => "最近请求被限流",
+                GatewayFailureCode.ModelUnavailable => "上游模型暂不可用",
+                _ => "最近请求未完成"
+            };
             status.ForeColor = result.Success || result.Cancelled ? InterfaceStyle.Accent : SystemColors.ControlText;
             SetDetail(result.Success ? $"最近请求成功 · {Product.Model} · 实际推理档位 {result.Effort}" : result.Message ?? "请求未完成，请稍后重试。");
             return;
@@ -175,7 +180,7 @@ internal sealed class MainForm : Form
         {
             case EnginePhase.Idle: active = false; busy = false; status.Text = "准备就绪"; break;
             case EnginePhase.Enabled: active = true; busy = false; status.Text = "中转运行中"; break;
-            case EnginePhase.Stopped: transferLog.Stopped(); transferSummary.Text = "中转已停止 · 日志已保留"; active = false; busy = false; status.Text = "中转已停止"; break;
+            case EnginePhase.Stopped: transferLog.Stopped(); active = false; busy = false; status.Text = "中转已停止"; break;
             case EnginePhase.Testing: busy = true; status.Text = "正在测试连接"; probe.Text = "测试中…"; break;
             // 探测失败不会关闭已运行的中转；保留停止按钮以便用户明确结束服务。
             case EnginePhase.Error: ShowError(value.Message ?? "操作失败"); return;
@@ -245,7 +250,7 @@ internal sealed class MainForm : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { tips.Dispose(); transferLog.Dispose(); }
+        if (disposing) tips.Dispose();
         base.Dispose(disposing);
     }
 
@@ -256,5 +261,7 @@ internal sealed class MainForm : Form
             throw new InvalidOperationException("离线预览状态不符合预期");
         if (baseUrl.Bounds.Width < 200 || power.Width < 50 || ClientSize.Width < 600)
             throw new InvalidOperationException("窗口布局尺寸不符合预期");
+        if (transferLog.Parent is null || !transferLog.Visible || transferLog.FindForm() != this || transferLog.Height < 200)
+            throw new InvalidOperationException("转发日志没有正确嵌入主窗口");
     }
 }

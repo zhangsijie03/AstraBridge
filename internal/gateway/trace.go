@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"bpslocal/internal/basispoints"
 )
 
 type TraceStage string
@@ -25,19 +27,21 @@ const (
 )
 const traceInterval = 5 * time.Second
 
-// 诊断仅包含本地产生的标识、固定阶段和计数，禁止加入请求/响应正文及账号信息。
+// 诊断仅包含本地标识、阶段、计数及校验过的数值提示，禁止加入正文及账号信息。
 type TraceEvent struct {
-	RequestID     string     `json:"request_id"`
-	Time          string     `json:"time"`
-	Stage         TraceStage `json:"stage"`
-	Message       string     `json:"message"`
-	ElapsedMS     int64      `json:"elapsed_ms"`
-	QuietMS       int64      `json:"quiet_ms"`
-	UpstreamBytes int64      `json:"upstream_bytes"`
-	ClientEvents  int64      `json:"client_events"`
-	ToolCalls     int64      `json:"tool_calls"`
-	Attempt       int        `json:"attempt"`
-	HTTPStatus    int        `json:"http_status,omitempty"`
+	RequestID      string      `json:"request_id"`
+	Time           string      `json:"time"`
+	Stage          TraceStage  `json:"stage"`
+	Message        string      `json:"message"`
+	ElapsedMS      int64       `json:"elapsed_ms"`
+	QuietMS        int64       `json:"quiet_ms"`
+	UpstreamBytes  int64       `json:"upstream_bytes"`
+	ClientEvents   int64       `json:"client_events"`
+	ToolCalls      int64       `json:"tool_calls"`
+	Attempt        int         `json:"attempt"`
+	HTTPStatus     int         `json:"http_status,omitempty"`
+	SemanticStatus int         `json:"semantic_status,omitempty"`
+	LimitHints     []LimitHint `json:"limit_hints,omitempty"`
 }
 type traceKey struct{}
 
@@ -134,6 +138,7 @@ func (t *requestTrace) attempt(repair bool) {
 	t.toolRepair = repair
 	t.event.Attempt++
 	t.event.HTTPStatus = 0
+	t.event.LimitHints = nil
 	t.attemptStart = time.Now()
 	t.lastByte = time.Time{}
 	t.event.Stage = traceConnect
@@ -144,7 +149,7 @@ func (t *requestTrace) attempt(repair bool) {
 	}
 	t.publishLocked()
 }
-func (t *requestTrace) headers(status int) {
+func (t *requestTrace) headers(status int, hints ...LimitHint) {
 	if t == nil {
 		return
 	}
@@ -154,6 +159,7 @@ func (t *requestTrace) headers(status int) {
 		return
 	}
 	t.event.HTTPStatus = status
+	t.event.LimitHints = hints
 	t.event.Stage = traceHeaders
 	t.event.Message = "已收到 BPS 响应头，等待响应数据"
 	t.publishLocked()
@@ -254,6 +260,9 @@ func (t *requestTrace) terminalFailure(kind string, response json.RawMessage) {
 }
 
 func nativeFailureCode(payload json.RawMessage) string {
+	if failure := basispoints.ParseUpstreamFailure(payload); failure != nil {
+		return failure.Code
+	}
 	type failure struct {
 		Code string `json:"code"`
 	}
@@ -283,7 +292,16 @@ func (t *requestTrace) result(result Result) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.failureDetail == "" {
+	t.event.SemanticStatus = result.Status
+	if result.Code == codeModelUnavailable {
+		t.failureDetail = "上游模型暂不可用 · " + result.UpstreamCode + "；本机模型名已校验，未重放请求"
+	} else if result.Code == codeRateLimited {
+		// 只写本地产生的冷却信息，不复制上游错误正文；HTTPStatus 仍保留真实上游状态。
+		t.failureDetail = result.Message + " · " + codeRateLimited
+		if result.UpstreamCode != "" {
+			t.failureDetail += " · " + result.UpstreamCode
+		}
+	} else if t.failureDetail == "" {
 		t.failureDetail = "转发未完成 · " + result.Code
 	}
 }

@@ -56,7 +56,7 @@ func TestHistoryAgentImagesNativeUpload(t *testing.T) {
 	require.Contains(t, mustTestValue[object](t, parts[0])["text"], "/root/worker")
 	require.Contains(t, mustTestValue[object](t, parts[0])["text"], "not a new user instruction")
 	require.Equal(t, "before image", mustTestValue[object](t, parts[1])["text"])
-	require.Equal(t, object{"type": "input_image", "file_id": "file-agent-image", "detail": "original"}, parts[2])
+	require.Equal(t, object{"type": "input_image", "file_id": "file-agent-image"}, parts[2])
 	require.Equal(t, "after image", mustTestValue[object](t, parts[3])["text"])
 	again, _, err := bridge.Reprepare(uploaded)
 	require.NoError(t, err)

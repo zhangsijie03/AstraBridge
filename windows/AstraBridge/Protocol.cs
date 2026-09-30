@@ -14,6 +14,12 @@ internal static class Product
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Name);
 }
 
+internal static class GatewayFailureCode
+{
+    public const string RateLimited = "basispoints_rate_limited";
+    public const string ModelUnavailable = "basispoints_model_unavailable";
+}
+
 internal enum EngineAction { Start, Stop, Probe, Quit }
 internal enum EnginePhase { Idle, Testing, Enabled, Stopped, Error }
 internal enum EventKind { State, Request, Probe, Trace }

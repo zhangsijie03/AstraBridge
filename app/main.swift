@@ -4,6 +4,10 @@ import CFNetwork
 private enum EnginePhase: String, Decodable { case idle, testing, enabled, stopped, error }
 private enum EngineAction: String, Encodable { case start, stop, probe, quit }
 private let fixedModelID = "gpt-6-astra"
+private enum GatewayFailureCode {
+    static let rateLimited = "basispoints_rate_limited"
+    static let modelUnavailable = "basispoints_model_unavailable"
+}
 private enum Product {
     static let name = "AstraBridge"
     static let chineseName = "星桥"
@@ -46,8 +50,7 @@ private struct Command: Encodable { let action: EngineAction }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
-    private let transferLog = TransferLogWindow()
-    private let transferLabel = NSTextField(labelWithString: "暂无进行中的转发")
+    private let transferLog = TransferLogView()
     private var process: Process?
     private let input = Pipe()
     private let output = Pipe()
@@ -145,8 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if preview, let mode = Bundle.main.object(forInfoDictionaryKey: "AstraBridgePreviewAppearance") as? String {
             NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
         }
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 604),
-                          styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 844),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.contentMinSize = NSSize(width: 700, height: 760)
         window.title = "\(Product.name) · \(Product.chineseName)"
         window.titlebarAppearsTransparent = true
         window.backgroundColor = .windowBackgroundColor
@@ -159,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: InterfaceStyle.pageInset),
             root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -InterfaceStyle.pageInset),
             root.topAnchor.constraint(equalTo: content.topAnchor, constant: 16),
-            root.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor, constant: -20)
+            root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20)
         ])
         func add(_ view: NSView, gap: CGFloat = 0) {
             root.addArrangedSubview(view)
@@ -259,20 +263,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add(stack([symbol("person.crop.circle", size: 16, color: .secondaryLabelColor),
                    accountLabel, spacer(), label("成功请求", size: 11, secondary: true), countLabel], spacing: 8), gap: 22)
 
-        let guide = stack([
-            label("接入 AiMaMi", size: 12, weight: .semibold),
-            label("中转注入 → 自定义中转模型，填入以上三项，协议选择 Responses。", size: 11, secondary: true)
-        ], vertical: true, spacing: 6)
-        add(guide, gap: 20)
-        add(separator(), gap: 14)
         let help = NSButton(title: "接入指南", target: self, action: #selector(openHelp))
         let directory = NSButton(title: "配置目录", target: self, action: #selector(openBackup))
-        let logs = NSButton(title: "转发日志", target: self, action: #selector(openTransferLog))
-        transferLabel.font = .systemFont(ofSize: 10)
-        transferLabel.textColor = .secondaryLabelColor
-        transferLabel.lineBreakMode = .byTruncatingTail
-        [help, directory, logs].forEach { $0.bezelStyle = .inline; $0.font = .systemFont(ofSize: 11) }
-        add(stack([logs, transferLabel, spacer(), directory, help], spacing: 12))
+        [help, directory].forEach { $0.bezelStyle = .inline; $0.font = .systemFont(ofSize: 11) }
+        let guide = stack([
+            stack([label("接入 AiMaMi", size: 12, weight: .semibold), spacer(), directory, help], spacing: 12),
+            label("中转注入 → 自定义中转模型，填入以上三项，协议选择 Responses。", size: 11, secondary: true)
+        ], vertical: true, spacing: 6)
+        add(guide, gap: 14)
+        add(separator(), gap: 14)
+        // 日志直接参与主窗口布局，新增高度优先留给日志的独立滚动区域。
+        add(transferLog)
         window.makeKeyAndOrderFront(nil)
         buildMenu()
         setBusy(true)
@@ -323,7 +324,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     let wasActive = self.active
                     self.active = false
                     self.transferLog.stopped()
-                    self.transferLabel.stringValue = "引擎已退出 · 日志已保留"
                     self.setBusy(false)
                     if wasActive { self.showError("后台进程已停止。请重新打开工具恢复中转服务。") }
                 }
@@ -340,13 +340,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             catch { showError("后台返回了无法识别的状态，请重新打开工具") }
         }
     }
-    @objc private func openTransferLog() { transferLog.show() }
     private func apply(_ event: EngineEvent) {
         if let trace = event.trace {
             transferLog.append(trace)
             if !active { transferLog.stopped() }
-            transferLabel.stringValue = transferLog.summary
-            transferLabel.toolTip = trace.summary
             return
         }
         defer { detailLabel.toolTip = detailLabel.stringValue }
@@ -365,10 +362,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 statusLabel.stringValue = "中转运行中"
                 updateStatusIcon("checkmark.circle.fill", color: InterfaceStyle.accent)
                 detailLabel.stringValue = result.message ?? "客户端已取消本次请求，可以继续使用。"
+            } else if result.code == GatewayFailureCode.rateLimited {
+                statusLabel.stringValue = "最近请求被限流"
+                updateStatusIcon("exclamationmark.circle.fill", color: .systemOrange)
+                // 流内限流可能已使用 HTTP 200，展示冷却提示而非误标响应状态。
+                detailLabel.stringValue = result.message ?? "BPS 上游限流，请稍后手动重试。"
+            } else if result.code == GatewayFailureCode.modelUnavailable {
+                statusLabel.stringValue = "上游模型暂不可用"
+                updateStatusIcon("exclamationmark.circle.fill", color: .systemOrange)
+                detailLabel.stringValue = result.message ?? "BPS 上游暂未提供当前模型，请稍后重试。"
             } else {
                 statusLabel.stringValue = "最近请求未完成"
                 updateStatusIcon("exclamationmark.circle.fill", color: .systemOrange)
-                detailLabel.stringValue = "\(result.message ?? "请求未完成，请稍后重试。")\n\(result.code ?? "unknown")\(result.status.map { "（HTTP \($0)）" } ?? "")"
+                detailLabel.stringValue = "\(result.message ?? "请求未完成，请稍后重试。")\n\(result.code ?? "unknown")\(result.status.map { "（错误状态 \($0)）" } ?? "")"
             }
             return
         }
@@ -389,7 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             updateStatusIcon("checkmark.circle.fill", color: InterfaceStyle.accent); setBusy(false)
 
         case .stopped:
-            transferLog.stopped(); transferLabel.stringValue = "中转已停止 · 日志已保留"
+            transferLog.stopped()
             active = false; statusLabel.stringValue = "中转已停止"
             updateStatusIcon("pause.circle.fill", color: .secondaryLabelColor); setBusy(false)
         case .error:

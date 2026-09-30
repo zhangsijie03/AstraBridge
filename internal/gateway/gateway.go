@@ -38,6 +38,7 @@ type Result struct {
 	UpstreamFields []string `json:"upstream_fields,omitempty"`
 }
 type Gateway struct {
+	rateLimits        *RateLimits
 	traceObserver     func(TraceEvent)
 	model             string
 	accountSource     func() (identity.Account, error)
@@ -61,7 +62,7 @@ func New(key, model string, accountSource func() (identity.Account, error), repo
 	transport.ForceAttemptHTTP2 = true
 	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: 10 * time.Second, PingTimeout: 5 * time.Second}
 	transport.MaxIdleConnsPerHost = 8
-	return &Gateway{model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: 20 * time.Minute, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: newBPSTransport(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8)}
+	return &Gateway{rateLimits: &RateLimits{}, model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: 20 * time.Minute, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: newBPSTransport(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8)}
 }
 func (g *Gateway) emit(r Result) {
 	if g.report != nil {
@@ -110,6 +111,16 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		problem(w, 401, "upstream_login_required", e.Error())
 		g.emit(Result{Code: "upstream_login_required", Status: 401, Message: e.Error()})
+		return
+	}
+	r = r.WithContext(withRateLimitRequest(r.Context(), account.AccountID))
+	// 在读取大请求体、上传图片和写出 SSE 头之前拦截冷却，客户端得到真实 429。
+	if limited := g.coolingAccount(r.Context(), account.AccountID); limited != nil {
+		result := Result{Model: g.model, Account: account.MaskedEmail}
+		limited.apply(&result)
+		limited.respond(w)
+		trace.result(result)
+		g.emit(result)
 		return
 	}
 	select {
@@ -197,6 +208,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			result.Status = 0
 			result.Message = "客户端已停止或取消本次请求；BPS 仍可继续使用。"
 		}
+		// 原生纠错会把附件/纠错错误包装成协议失败；本轮的限流原因仍需准确展示。
+		if !result.Success && !result.Cancelled {
+			if limited := observedRateLimit(r.Context()); limited != nil {
+				limited.apply(&result)
+			}
+		}
 		trace.result(result)
 		g.emit(result)
 	}()
@@ -211,7 +228,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			uploadFailure(&result, r.Context(), ctx, e)
 			if !result.Cancelled {
-				problem(w, result.Status, result.Code, result.Message)
+				if limited := observedRateLimit(ctx); limited != nil {
+					limited.apply(&result)
+					limited.respond(w)
+				} else {
+					problem(w, result.Status, result.Code, result.Message)
+				}
 			}
 			return
 		}
@@ -223,6 +245,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			problem(w, result.Status, result.Code, result.Message)
 			return
 		}
+	}
+	// 准备/上传期间另一个并发请求可能触发冷却，发出生成请求前再检查一次。
+	if limited := g.coolingAccount(ctx, account.AccountID); limited != nil {
+		limited.apply(&result)
+		limited.respond(w)
+		return
 	}
 	upstream, e := http.NewRequestWithContext(ctx, "POST", g.endpoint, bytes.NewReader(prepared))
 	if e != nil {
@@ -246,7 +274,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem(w, result.Status, result.Code, result.Message)
 		return
 	}
-	trace.headers(resp.StatusCode)
+	captureBPSHeaders(ctx, resp)
 	resp.Body = traceBody(ctx, resp.Body)
 	defer func() {
 		if resp != nil && resp.Body != nil {
@@ -267,6 +295,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		limited := g.recordRateLimit(ctx, account.AccountID, resp.Header.Get("Retry-After"))
+		limited.apply(&result)
+		limited.respond(w)
+		return
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		result.Status = resp.StatusCode
 		result.Code = "upstream_rejected"
@@ -277,7 +311,16 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status = 502
 		}
 		result.Message = formatUpstreamRejection(resp.StatusCode, result.UpstreamType, result.UpstreamCode, result.UpstreamFields)
-		problem(w, status, result.Code, result.Message)
+		if setModelUnavailable(&result) {
+			// 同原生失败边界保留真实状态和模型错误；不换模型、账号或重放请求。
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{
+				"type": result.UpstreamType, "code": result.UpstreamCode, "message": result.Message,
+			}})
+		} else {
+			problem(w, status, result.Code, result.Message)
+		}
 		return
 	}
 	contentType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
@@ -290,6 +333,18 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer converted.Close()
 	g.forwardStream(w, r, ctx, converted, stream, &result)
 	traceSuccess = result.Success
+}
+
+// model_not_found 只证明本次上游不提供该模型，不能推断永久失权或登录失效。
+// 与原生 basispoints_model_access_changed 分支一样，不因此禁用整个账号。
+func setModelUnavailable(result *Result) bool {
+	if !((result.Status == http.StatusNotFound && (result.UpstreamCode == "model_not_found" || result.UpstreamCode == "model_not_found_error")) ||
+		result.UpstreamCode == "basispoints_model_access_changed") {
+		return false
+	}
+	result.Code = codeModelUnavailable
+	result.Message = fmt.Sprintf("BPS 上游当前无法提供模型 %s（HTTP/错误状态 %d，%s）。本机模型名已校验；这不是本地接口路径错误。未自动重放或切换模型，请稍后重试；持续出现时需核实当前账号的 BPS 模型权限。", result.Model, result.Status, result.UpstreamCode)
+	return true
 }
 
 // classifyUpstreamRejection retains only safe protocol metadata. The error

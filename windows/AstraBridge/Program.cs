@@ -28,6 +28,7 @@ internal static class Program
                         preview.Save(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report))!, "windows-smoke-preview.png"));
                     }
                     checks.Add("preview-screenshot");
+                    SmokeTest.VerifyEmbeddedLog(form); checks.Add("embedded-log-history-and-controls");
                     SmokeTest.VerifyProtocol(); checks.Add("typed-json-contract");
                     await SmokeTest.VerifyEngineAsync(); checks.Add("isolated-engine-idle-and-eof-exit");
                     await SmokeTest.VerifyStartupErrorAsync(); checks.Add("startup-error-preserved-after-exit");

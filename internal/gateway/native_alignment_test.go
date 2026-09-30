@@ -140,7 +140,10 @@ func TestNativeTerminalsRemainDistinct(t *testing.T) {
 			g.ServeHTTP(w, request(simpleRequest))
 			require.Contains(t, w.Body.String(), "event: "+kind)
 			require.Contains(t, w.Body.String(), "basispoints_protocol_error")
-			require.Contains(t, w.Body.String(), "resp_native")
+			// v2.9.4 将独立 error 事件归一化为安全错误，不保留非标准 response 外壳。
+			if kind != "error" {
+				require.Contains(t, w.Body.String(), "resp_native")
+			}
 			require.NotContains(t, w.Body.String(), "bps_response_failed")
 			require.Equal(t, "no", w.Header().Get("X-Accel-Buffering"))
 		})

@@ -251,8 +251,8 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 				response["reasoning"] = object{"effort": b.Effort}
 			}
 		}
-		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" || kind == "error"
-		return emit(kind, payload)
+		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" || kind == "response.cancelled" || kind == "error"
+		return emit(kind, normalizeFailureEvent(kind, payload))
 	}
 	err := readEvents(reader, func(event string, data []byte) error {
 		if terminal {
@@ -274,6 +274,10 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 		failed := object{
 			"status": "failed", "output": []any{},
 			"error": object{"code": "basispoints_protocol_error", "message": err.Error()},
+		}
+		var upstreamFailure *UpstreamFailure
+		if errors.As(err, &upstreamFailure) {
+			failed["error"] = upstreamFailure.Details()
 		}
 		for _, field := range []string{"id", "model", "usage"} {
 			if value := terminalResponse[field]; value != nil {

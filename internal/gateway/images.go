@@ -45,6 +45,9 @@ func bpsHeaders(account identity.Account) http.Header {
 // 与上游 openai_excel_bps_attachments.go 相同的 multipart 端点、账号头、
 // 60 秒超时和 openai_file_id 契约；仅将平台 HTTP 客户端替换为本机客户端。
 func (g *Gateway) uploadAttachment(ctx context.Context, account identity.Account, image basispoints.InlineAttachment) (string, error) {
+	if limited := g.coolingAccount(ctx, account.AccountID); limited != nil {
+		return "", limited
+	}
 	ctx, cancel := context.WithTimeout(ctx, attachmentTimeout)
 	defer cancel()
 	reader, contentType, length, err := image.Multipart()
@@ -69,6 +72,10 @@ func (g *Gateway) uploadAttachment(ctx context.Context, account identity.Account
 	}
 	// 先释放附件连接，再发 Responses，避免同一账号的连接槽被自己占用。
 	defer resp.Body.Close()
+	captureBPSHeaders(ctx, resp)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", g.recordRateLimit(ctx, account.AccountID, resp.Header.Get("Retry-After"))
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		status := resp.StatusCode
 		if status < 400 || status > 599 {

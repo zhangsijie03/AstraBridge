@@ -88,3 +88,23 @@ func validateImageDetail(part object) error {
 	}
 	return nil
 }
+
+// Normalize only validated, translated messages. This also covers file images
+// moved out of tool results; inline tool screenshots and HTTPS URLs keep their
+// own contract. Running after validation must not hide malformed references.
+func normalizeMessageFileImages(input []any) {
+	for _, raw := range input {
+		item, _ := raw.(object)
+		kind := text(item["type"])
+		if kind != "message" && (kind != "" || text(item["role"]) == "") {
+			continue
+		}
+		parts, _ := item["content"].([]any)
+		for i, rawPart := range parts {
+			part, _ := rawPart.(object)
+			if text(part["type"]) == "input_image" && text(part["file_id"]) != "" {
+				parts[i] = object{"type": "input_image", "file_id": part["file_id"]}
+			}
+		}
+	}
+}

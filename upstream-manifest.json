@@ -1,11 +1,11 @@
 {
   "repository": "https://github.com/ranxi2001/sub2api",
-  "tag": "v2.9.3",
-  "commit": "faf58e440b1bddb07429f74ed63b570c11d1c0f8",
+  "tag": "v2.9.4",
+  "commit": "7dd10bfe4b635f226f0ddfa52cc65797697272d8",
   "source_path": "backend/internal/service/basispoints",
   "sha256": {
-    "NOTICE.md": "9cc70ac68ed57eb5ba4611e5750756686aef0ffd0a9fe44b07271d49ec9dbc34",
-    "README.md": "606d46b6c03e5b037be090647772af8af131f9cf626e03ad64342401a0275a88",
+    "NOTICE.md": "25f9f404a89bc3d2801b9380a92db3c05560337714e66e03ecdb939029c19dc1",
+    "README.md": "ea79a02e820226024daf4293b894ce927dbcb017467915244895834c0dc844dd",
     "agent_message_test.go": "aa3c5d0d366bb1bd22d85bb93325337ed6f067d04352a474ac378b9aaaeffa0b",
     "attachments.go": "8eb7c4693cb416768b11915f3855b080b8126212e7a757502e6449e7573d2758",
     "attachments_test.go": "487dfb69eeb6fbc5f1ecca947bad8d017c020849f2a38f2552c41f71166b03b7",
@@ -31,16 +31,17 @@
     "function_code_transport.go": "8da57e6086619825bcc177cbd11129f68001bf009f1db77f101c7bf67c7f749a",
     "function_code_transport_test.go": "2ae12846716b3de38bf3a1b37666370fac602a525538c3a44fb852ae5d66c32b",
     "history_collision_test.go": "65ef9109ed09033fb8a80ff0a0a03056b95637d6ac4392fd26eaf1ea7b4e17d2",
-    "history_message_images_test.go": "700115a717a79ccf5649402275f0e543b7cf38f7901f5f15ddff5406731ac428",
+    "history_message_images_test.go": "7fcb21d5937e282de264e03f85b44177d77f88dabf5d69c6fdb15ab462334da0",
     "history_messages.go": "83dc3b49810d8003103b32217470cdeea266dda84b3c745d0da5b92b4e0912fb",
     "history_messages_test.go": "52fb16836681e5c618f4f422e5d59f3c12a14e193310d10c39fec7b7465de9ac",
     "history_recovery_test.go": "c91b8053acaeb70642db763bafa1db0b8af005efc72890ad0abc124b43fbf3a6",
     "image_attachment_support.go": "5ad4fbc743dd39d453b7e325e923f952378afcc10fcc49f0573536d42117b93f",
     "image_capacity.go": "4a6e2338e4eb0fad01990408d6447b306194cc838bea2a370370ca819398cc02",
+    "image_file_reference_test.go": "55d348ba41e72f5c53f4d93816166a1c19b30c6342b72f852974506aadda3d55",
     "image_policy.go": "7e170651098b414393e977d1ce819b3293fd89f9ec02dd74a04d205d039671aa",
-    "image_policy_stream.go": "b998aff43ecc50b7d63ba437bc1d40f1edb155da853832322bed93eafddc2f8e",
+    "image_policy_stream.go": "ff80a55815ee94c6bacdeb2e95905e896beaa6a4e612fb9ecd6e13864dc5280d",
     "image_policy_test.go": "2bd34cb0ee03f88c5fab2eb08cdc8a0980079cbfef49fa6bab05392b8f27b565",
-    "images.go": "f947aa9ad536a7e49491b367c5988a240307d9b81817eba1e0549368bbdc691a",
+    "images.go": "4bb400493a3aeeacdcf3d2c6cc099b89e024e4e7a0a44b4236a7b70bba1b8b8e",
     "images_test.go": "1711d83a9f303f922fed7a47ee03a5d92631109528656b7d8d3381e431dceee8",
     "invocation_recovery_test.go": "454a045a18f6aa020a9aec22a574d25d508da17e4b9cc12cf0bc2c02235143b1",
     "plan.go": "2ee56aa49c0484f3d9c050b5b4affe5994301a6872ad0a2db93b0fb7958814b7",
@@ -48,21 +49,23 @@
     "protocol_completion_test.go": "d53eea0560508c9f2007ee2b53727b56ad5adf65b7b248ef0e649db92e33f405",
     "raw_custom_call_test.go": "85d765c7428ee7b3327586fed4d4dc7d3cd2d587718f529fd44b12453e1ed934",
     "replay_cache_test.go": "788686a7aaafa537fc752aeae01d3622bb45c839d657281526fcea8118a31af3",
-    "request.go": "5a17796e2365635f1dd6b2cd08daff4be3c1c82b75ebbc236cb7c1ed02561268",
+    "request.go": "74321a701b5a4936a9b700f954c73172bb6a572f4583231806bead644c26c5cb",
     "request_compatibility_test.go": "510318c241119783ca76861143a9ace97216fc4d27deafa969323dbae10628ea",
-    "stream.go": "d8264650845b279b57aba5121a73333cbe3a74ead5d8fd59f69259c889353e03",
+    "stream.go": "21cfb72b936198ca2ca099c2101c671bcf76ab302b12a0322c3931229415c0bd",
     "stream_repair_boundary_test.go": "52c6d96e40670ad1e3583fb0164ded7630303ae6ec4223413595cf406e851029",
     "structured_output.go": "0d28fca407c58e1488a6de08e82bbe6a84796ab7aa64f40a19024a57409773a8",
     "structured_output_test.go": "51217ff7fe6873044ecf9426b172e06d3d064e4c18a6e448d2c5e7611b4407ee",
     "terminal_tools_test.go": "8f6cd3119be1a0e851136b51d0576fc5661211eb95c8884318710217abe76c77",
     "tool_duplicates_test.go": "0127c77ee1dbfdee8cfc440410c76d22670941c2c38a021bae22d511a2c3e846",
     "tool_images.go": "976276be49872730a7d66c088bab1c4843dc78ede89631c0181bf524764f3367",
-    "tool_images_test.go": "2fc99409eb7fb19db9abc8f645f2f75c956c8fc772bdb5cd8893e3967e36ee7c",
-    "tool_repair.go": "be4f9d5b46c8866503d56b8cac84a96fc437f6befea45a8ba82797d2e4a1f793",
+    "tool_images_test.go": "a9f1d520c1900559cfe2a62d3990af8d12b8132548e19ccf823596623e201958",
+    "tool_repair.go": "36582de58a0d63eba67fdc4c42e0537577e948a862587772ebbaf9f33a0e1828",
     "tool_repair_test.go": "84d874d4a078295adbfa90bcfa6c3d66fdfd85443b1fc5d8dfe23a2028680086",
     "tool_schema.go": "bc1025f867b6db540ebcd044e369f780ec0e25fd507a667f8561c2ac97244e8c",
     "tools.go": "2a25739ad6636f29721ba4376dc4b2e6490b71a38f91bcd7d519fbffdbd215a0",
-    "unknown_tool_repair.go": "c67c335ead323f08c0201a07872bac79854b0675316391f888ee878255fde0a9"
+    "unknown_tool_repair.go": "4a3c448ea338b184fb020dc1f9fcb87414497509ef2497c27c0f1ea37f99c957",
+    "upstream_failure.go": "689537ff7f7060af441519c1ce17e71bed8a1664d31fa1dd9e18c6ee9583942e",
+    "upstream_failure_test.go": "b2147a344c9efb961c26dd4f143be3ece22d8e6066b54e7f564d2cfa81e71689"
   },
   "baseline_sha256": {
     "NOTICE.md": "4d6155ed492d0c5fdb09b56b2bc7696f27104f74a96964bd2a88170104016fec",
@@ -90,7 +93,7 @@
     "tools.go": "dfac7539c613040e19cdd5a95d3517f5bf4acee00d6cbeee7939743b503cd6f5"
   },
   "native_images": {
-    "commit": "faf58e440b1bddb07429f74ed63b570c11d1c0f8",
+    "commit": "7dd10bfe4b635f226f0ddfa52cc65797697272d8",
     "source_path": "backend/internal/service/basispoints",
     "unmodified_files": [
       "attachments.go",
@@ -137,6 +140,7 @@
     "history_messages_test.go",
     "history_recovery_test.go",
     "image_capacity.go",
+    "image_file_reference_test.go",
     "image_policy.go",
     "image_policy_stream.go",
     "image_policy_test.go",
@@ -162,7 +166,9 @@
     "tool_repair_test.go",
     "tool_schema.go",
     "tools.go",
-    "unknown_tool_repair.go"
+    "unknown_tool_repair.go",
+    "upstream_failure.go",
+    "upstream_failure_test.go"
   ],
   "excluded_upstream_files": [
     "image_relay.go",
@@ -175,7 +181,7 @@
   ],
   "host_adapter_source": "backend/internal/service/openai_excel_bps.go",
   "native_transport": {
-    "commit": "faf58e440b1bddb07429f74ed63b570c11d1c0f8",
+    "commit": "7dd10bfe4b635f226f0ddfa52cc65797697272d8",
     "source_path": "backend/internal/util/transportdiag",
     "local_path": "internal/transportdiag",
     "sha256": {
@@ -191,6 +197,8 @@
     "backend/internal/service/openai_excel_bps_encrypted.go",
     "backend/internal/service/gateway_upstream_response.go",
     "backend/internal/repository/http_upstream_bps.go",
-    "backend/internal/repository/http_upstream.go"
+    "backend/internal/repository/http_upstream.go",
+    "backend/internal/service/openai_excel_bps_ratelimit.go",
+    "backend/internal/service/ratelimit_service.go"
   ]
 }

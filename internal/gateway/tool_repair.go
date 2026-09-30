@@ -12,7 +12,7 @@ import (
 	"bpslocal/internal/identity"
 )
 
-// 对应 Sub2API v2.9.3 openai_excel_bps.go 的 StreamWithRepairs 接入。
+// 对应 Sub2API v2.9.4 openai_excel_bps.go 的 StreamWithRepairs 接入。
 // 纠错资格、次数、整批校验、原始代码绑定和用量合并完全由原生模块负责；
 // 宿主只提供同账号、同模型、同会话的 HTTP 回调，不重放网络失败。
 func (g *Gateway) streamWithRepairs(ctx context.Context, bridge *basispoints.Bridge, upstream io.ReadCloser, prepared []byte, account identity.Account) io.ReadCloser {
@@ -41,6 +41,9 @@ func (g *Gateway) streamWithRepairs(ctx context.Context, bridge *basispoints.Bri
 }
 
 func (g *Gateway) openToolCorrection(ctx context.Context, body []byte, account identity.Account) (io.ReadCloser, error) {
+	if limited := g.coolingAccount(ctx, account.AccountID); limited != nil {
+		return nil, limited
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, g.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("BPS correction request could not be built")
@@ -55,7 +58,12 @@ func (g *Gateway) openToolCorrection(ctx context.Context, body []byte, account i
 		// 网络错误可能带 URL 或代理凭据，禁止写回客户端错误事件。
 		return nil, fmt.Errorf("BPS correction connection failed")
 	}
-	traceFrom(ctx).headers(response.StatusCode)
+	captureBPSHeaders(ctx, response)
+	if response.StatusCode == http.StatusTooManyRequests {
+		limited := g.recordRateLimit(ctx, account.AccountID, response.Header.Get("Retry-After"))
+		_ = response.Body.Close()
+		return nil, limited
+	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		_ = response.Body.Close()
 		return nil, fmt.Errorf("BPS correction returned HTTP %d", response.StatusCode)

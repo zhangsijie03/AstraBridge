@@ -68,16 +68,17 @@ func (o *output) send(e Event) {
 }
 
 type controller struct {
-	settings  *relayconfig.Settings
-	baseURL   string
-	ctx       context.Context
-	manager   *localconfig.Manager
-	authPath  string
-	model     string
-	out       *output
-	server    *http.Server
-	count     atomic.Int64
-	lastProbe time.Time
+	rateLimits gateway.RateLimits
+	settings   *relayconfig.Settings
+	baseURL    string
+	ctx        context.Context
+	manager    *localconfig.Manager
+	authPath   string
+	model      string
+	out        *output
+	server     *http.Server
+	count      atomic.Int64
+	lastProbe  time.Time
 }
 
 func (c *controller) status(p Phase, msg string) {
@@ -123,7 +124,7 @@ func probeText() (string, string, error) {
 	return text, token, nil
 }
 
-func probe(ctx context.Context, authPath, model string) (identity.Account, error) {
+func probe(ctx context.Context, authPath, model string, limits *gateway.RateLimits) (identity.Account, error) {
 	a, e := identity.Read(authPath)
 	if e != nil {
 		return a, e
@@ -138,7 +139,9 @@ func probe(ctx context.Context, authPath, model string) (identity.Account, error
 	r.Header.Set("Authorization", "Bearer probe")
 
 	w := &probeWriter{header: make(http.Header)}
-	gateway.New("probe", model, func() (identity.Account, error) { return identity.Read(authPath) }, nil).ServeHTTP(w, r)
+	g := gateway.New("probe", model, func() (identity.Account, error) { return identity.Read(authPath) }, nil)
+	g.SetRateLimits(limits)
+	g.ServeHTTP(w, r)
 	if w.status != 200 {
 		var v struct {
 			Error struct {
@@ -182,7 +185,7 @@ func (c *controller) test() (identity.Account, error) {
 	c.status(phaseTesting, "正在验证当前账号的 BPS 连接…")
 	ctx, cancel := context.WithTimeout(c.ctx, 60*time.Second)
 	defer cancel()
-	return probe(ctx, c.authPath, c.model)
+	return probe(ctx, c.authPath, c.model, &c.rateLimits)
 }
 func (c *controller) start() error {
 	c.model = fixedModelID
@@ -214,6 +217,7 @@ func (c *controller) start() error {
 		}
 		c.out.send(Event{Type: "request", Result: &r, Requests: c.count.Load()})
 	})
+	g.SetRateLimits(&c.rateLimits)
 	// UI 日志使用有界队列，界面处理缓慢时丢弃诊断快照，不阻塞 BPS 转发。
 	traceEvents := make(chan gateway.TraceEvent, 256)
 	traceCtx, stopTrace := context.WithCancel(c.ctx)

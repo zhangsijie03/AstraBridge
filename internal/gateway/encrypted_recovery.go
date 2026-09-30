@@ -32,7 +32,7 @@ func (g *Gateway) recoverEncrypted(ctx context.Context, response *http.Response,
 	if err != nil {
 		return retried, body, err
 	}
-	trace.headers(retried.StatusCode)
+	captureBPSHeaders(ctx, retried)
 	retried.Body = traceBody(ctx, retried.Body)
 	return retried, body, nil
 }

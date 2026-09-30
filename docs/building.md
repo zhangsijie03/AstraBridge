@@ -11,6 +11,7 @@ python3 scripts/check_upstream.py
 go test -mod=vendor -race -count=1 ./...
 go vet -mod=vendor ./...
 python3 scripts/test_ui_contract.py
+python3 scripts/test_embedded_logs.py
 bash scripts/build.sh
 python3 scripts/smoke.py
 codesign --verify --deep --strict dist/AstraBridge.app
