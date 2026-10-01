@@ -196,6 +196,10 @@ final class UpdateChecker {
         } catch { throw UpdateError.updaterLaunchFailed(error.localizedDescription) }
     }
 
+    func discard(_ staged: StagedAppUpdate) {
+        cleanup(staged.stagingDirectory)
+    }
+
     private func download(_ url: URL, to destination: URL, completion: @escaping (Result<Void, Error>) -> Void) {
         var request = URLRequest(url: url); request.timeoutInterval = 120
         session.downloadTask(with: request) { temporaryURL, response, error in

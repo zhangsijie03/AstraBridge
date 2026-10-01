@@ -521,6 +521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     self.detailLabel.stringValue = "应用将关闭并自动重启到版本 \(staged.version)。"
                     NSApp.terminate(nil)
                 } catch {
+                    self.updateChecker.discard(staged)
                     self.updateInProgress = false; self.showError(error.localizedDescription)
                 }
             }

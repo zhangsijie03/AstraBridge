@@ -114,6 +114,13 @@ jobs:
           test -f "artifacts/AstraBridge-${version}-macOS-arm64.zip"
           test -f "artifacts/AstraBridge-${version}-Windows-x64.zip"
           (cd artifacts && sha256sum *.zip > SHA256SUMS.txt)
-          gh release create "$RELEASE_TAG" artifacts/*.zip artifacts/SHA256SUMS.txt \
-            --verify-tag --latest --title "AstraBridge ${version} · 星桥" \
-            --notes-file "docs/releases/${version}.md"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/*.zip artifacts/SHA256SUMS.txt --clobber
+            gh release edit "$RELEASE_TAG" --verify-tag --latest \
+              --title "AstraBridge ${version} · 星桥" \
+              --notes-file "docs/releases/${version}.md"
+          else
+            gh release create "$RELEASE_TAG" artifacts/*.zip artifacts/SHA256SUMS.txt \
+              --verify-tag --latest --title "AstraBridge ${version} · 星桥" \
+              --notes-file "docs/releases/${version}.md"
+          fi

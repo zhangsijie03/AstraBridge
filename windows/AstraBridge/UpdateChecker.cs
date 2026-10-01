@@ -111,9 +111,27 @@ for ($attempt = 0; $attempt -lt 240; $attempt++) {
     if (-not (Get-Process -Id $processId -ErrorAction SilentlyContinue)) { break }
     Start-Sleep -Milliseconds 250
 }
+if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { exit 10 }
 Start-Sleep -Milliseconds 500
-Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $target -Recurse -Force
-Start-Process -FilePath (Join-Path $target 'AstraBridge.exe')
+$temporary = "$target.update"
+$backup = "$target.previous"
+Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $temporary -Force | Out-Null
+Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $temporary -Recurse -Force
+if (-not (Test-Path -LiteralPath (Join-Path $temporary 'AstraBridge.exe'))) { exit 11 }
+$hadTarget = Test-Path -LiteralPath $target
+if ($hadTarget) { Move-Item -LiteralPath $target -Destination $backup -Force }
+try {
+    Move-Item -LiteralPath $temporary -Destination $target -Force
+    Start-Process -FilePath (Join-Path $target 'AstraBridge.exe')
+}
+catch {
+    Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+    if ($hadTarget -and (Test-Path -LiteralPath $backup)) { Move-Item -LiteralPath $backup -Destination $target -Force }
+    exit 12
+}
+Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $cleanup -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """, Encoding.UTF8);
@@ -134,6 +152,8 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
         start.ArgumentList.Add(staged.StagingDirectory);
         if (Process.Start(start) is null) throw new InvalidOperationException("无法启动 PowerShell 更新程序。");
     }
+
+    public void Discard(StagedAppUpdate staged) => TryDelete(staged.StagingDirectory);
 
     public void Dispose() => client.Dispose();
 

@@ -52,6 +52,24 @@ func TestRewriteLocalFileCitationsRejectsSensitivePath(t *testing.T) {
 	require.NotContains(t, unsafeGot, "/v1/files/")
 }
 
+func TestRewriteLocalFileCitationsRejectsUntrustedFiles(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	for _, path := range []string{
+		filepath.Join(home, ".config", "sample", "token.json"),
+		filepath.Join(home, ".kube", "config"),
+	} {
+		got := newCitationRewriter(newLocalFileBroker(), "http://127.0.0.1:17861").rewrite("【文件:1】 (< " + path + ":1>)")
+		require.NotContains(t, got, "/v1/files/", path)
+	}
+
+	path := filepath.Join(t.TempDir(), "archive.bin")
+	require.NoError(t, os.WriteFile(path, []byte("private"), 0600))
+	got := newCitationRewriter(newLocalFileBroker(), "http://127.0.0.1:17861").rewrite("【文件:1】 (< " + path + ":1>)")
+	require.NotContains(t, got, "/v1/files/")
+}
+
 func TestCitationRewriterHandlesSplitDeltas(t *testing.T) {
 	path, citation := localCitationForTest(t)
 	r := newCitationRewriter(newLocalFileBroker(), "http://127.0.0.1:17861")

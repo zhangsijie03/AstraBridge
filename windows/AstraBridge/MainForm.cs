@@ -259,9 +259,10 @@ internal sealed class MainForm : Form
     private async Task DownloadAndInstallAsync(AppUpdate update)
     {
         updateInProgress = true; busy = true; status.Text = "正在准备更新"; SetDetail($"正在下载并校验版本 {update.Version}，请不要退出应用。"); UpdateControls();
+        StagedAppUpdate? staged = null;
         try
         {
-            var staged = await updateChecker.StageAsync(update);
+            staged = await updateChecker.StageAsync(update);
             await engine.DisposeAsync();
             updateChecker.LaunchUpdater(staged);
             mayClose = true;
@@ -269,6 +270,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidDataException or FileNotFoundException or UnauthorizedAccessException or IOException or InvalidOperationException)
         {
+            if (staged is not null) updateChecker.Discard(staged);
             updateInProgress = false; busy = false; ShowError(error.Message);
         }
     }

@@ -24,6 +24,20 @@ const (
 	localFileMaxBytes = 32 << 20
 )
 
+var localFileSafeExtensions = map[string]struct{}{
+	".md": {}, ".txt": {}, ".log": {}, ".json": {}, ".yaml": {}, ".yml": {}, ".toml": {},
+	".xml": {}, ".html": {}, ".htm": {}, ".css": {}, ".js": {}, ".ts": {}, ".tsx": {},
+	".jsx": {}, ".go": {}, ".java": {}, ".kt": {}, ".py": {}, ".rs": {}, ".swift": {},
+	".cs": {}, ".cpp": {}, ".c": {}, ".h": {}, ".sql": {}, ".sh": {}, ".zsh": {},
+	".ps1": {}, ".bat": {}, ".csv": {}, ".diff": {}, ".patch": {}, ".png": {},
+	".jpg": {}, ".jpeg": {}, ".gif": {}, ".webp": {}, ".pdf": {},
+}
+
+var localFileSensitiveSegments = map[string]struct{}{
+	".ssh": {}, ".aws": {}, ".codex": {}, ".config": {}, ".kube": {}, ".gnupg": {},
+	".npm": {}, ".docker": {}, ".git": {}, "keychains": {},
+}
+
 type localFileGrant struct {
 	path    string
 	expires time.Time
@@ -247,15 +261,21 @@ func safeLocalCitationPath(raw string) bool {
 		return false
 	}
 	for _, segment := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
-		if segment == ".ssh" || segment == ".aws" || segment == ".codex" || segment == "Keychains" {
+		if _, sensitive := localFileSensitiveSegments[strings.ToLower(segment)]; sensitive {
 			return false
 		}
 	}
 	lower := strings.ToLower(filepath.Base(path))
-	for _, suffix := range []string{".pem", ".key", ".p12", ".pfx", ".env", "auth.json", "credentials"} {
+	if lower == ".env" || strings.HasPrefix(lower, ".env.") {
+		return false
+	}
+	for _, suffix := range []string{".pem", ".key", ".p12", ".pfx", ".netrc", "auth.json", "credentials", "token.json", "tokens.json", "secrets.json", "id_rsa", "id_ed25519", "known_hosts"} {
 		if lower == suffix || strings.HasSuffix(lower, suffix) {
 			return false
 		}
+	}
+	if _, safe := localFileSafeExtensions[strings.ToLower(filepath.Ext(path))]; !safe {
+		return false
 	}
 	return true
 }
