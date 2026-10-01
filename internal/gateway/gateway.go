@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,7 @@ type Gateway struct {
 	attachments       basispoints.AttachmentCache
 	fileBroker        *localFileBroker
 	localFileBaseURL  string
+	upstreamBackoff   *upstreamBackoff
 	bodyBytes         atomic.Int64
 	report            func(Result)
 	slots             chan struct{}
@@ -67,7 +69,7 @@ func New(key, model string, accountSource func() (identity.Account, error), repo
 	transport.ForceAttemptHTTP2 = true
 	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: 10 * time.Second, PingTimeout: 5 * time.Second}
 	transport.MaxIdleConnsPerHost = 8
-	return &Gateway{rateLimits: &RateLimits{}, model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: defaultRequestTimeout, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: newBPSTransport(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8), fileBroker: newLocalFileBroker()}
+	return &Gateway{rateLimits: &RateLimits{}, model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: defaultRequestTimeout, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: newBPSTransport(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8), fileBroker: newLocalFileBroker(), upstreamBackoff: newUpstreamBackoff()}
 }
 
 func (g *Gateway) SetLocalFileBaseURL(baseURL string) {
@@ -243,6 +245,16 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 完整请求超时有上界；客户端取消会沿同一 context 立即传递至上游。
 	ctx, cancel := context.WithTimeout(r.Context(), g.requestTimeout)
 	defer cancel()
+	if delay := g.upstreamBackoff.remaining(); delay > 0 {
+		seconds := backoffSeconds(delay)
+		trace.stage(traceConnect, fmt.Sprintf("上游连接冷却中，%d 秒后允许重试", seconds))
+		result.Code = codeBackoff
+		result.Status = http.StatusServiceUnavailable
+		result.Message = fmt.Sprintf("BPS 上游连接刚刚中断，正在等待代理恢复；请 %d 秒后重试。", seconds)
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		problem(w, result.Status, result.Code, result.Message)
+		return
+	}
 	if images.HasImages() {
 		trace.stage(traceUpload, "正在上传图片附件到 BPS")
 		raw, e = images.Upload(ctx, &g.attachments, attachmentScope(scope, g.key, account), func(uploadCtx context.Context, image basispoints.InlineAttachment) (string, error) {
@@ -290,13 +302,19 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if result.Code != codeTimeout {
+			delay := g.upstreamBackoff.failure()
+			seconds := backoffSeconds(delay)
 			result.Code = codeConnection
 			result.Status = 502
-			result.Message = "无法连接 BPS 上游，请检查网络或代理；请求未自动重放。"
+			result.Message = fmt.Sprintf("无法连接 BPS 上游，请检查网络或代理；请求未自动重放；建议 %d 秒后重试。", seconds)
+			if seconds > 0 {
+				w.Header().Set("Retry-After", strconv.Itoa(seconds))
+			}
 		}
 		problem(w, result.Status, result.Code, result.Message)
 		return
 	}
+	g.upstreamBackoff.success()
 	captureBPSHeaders(ctx, resp)
 	resp.Body = traceBody(ctx, resp.Body)
 	defer func() {
@@ -356,6 +374,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer converted.Close()
 	g.forwardStream(w, r, ctx, converted, stream, &result)
 	traceSuccess = result.Success
+	if traceSuccess {
+		g.upstreamBackoff.success()
+	}
 }
 
 // model_not_found 只证明本次上游不提供该模型，不能推断永久失权或登录失效。

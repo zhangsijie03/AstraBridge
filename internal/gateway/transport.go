@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,8 +41,8 @@ func (t *bpsTransport) CloseIdleConnections() {
 	t.h1.CloseIdleConnections()
 }
 
-// 沿用 v2.9.3 http_upstream_bps.go：只有已协商 H2 的 HTTP 代理传输故障
-// 才让后续请求在同一代理试用 H1 一分钟；绝不重发已经发送的失败请求。
+// 本机代理默认走 H1，避免常见本地代理重置 BPS 的 H2 长连接；远端代理
+// 仍沿用 H2 故障后短时试用 H1 的策略；绝不重发已经发送的失败请求。
 func (t *bpsTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	proxyKey := ""
 	if t.h2.Proxy != nil {
@@ -53,17 +55,32 @@ func (t *bpsTransport) RoundTrip(request *http.Request) (*http.Response, error) 
 		}
 	}
 	selected := t.h2
-	if proxyKey != "" && t.http1Active(proxyKey, time.Now()) {
+	preferH1 := proxyKey != "" && preferHTTP1Proxy(proxyKey)
+	if proxyKey != "" && (preferH1 || t.http1Active(proxyKey, time.Now())) {
 		selected = t.h1
 	}
 	trace := new(transportdiag.Trace)
 	request = trace.Request(request)
+	if preferH1 {
+		if requestTrace := traceFrom(request.Context()); requestTrace != nil {
+			requestTrace.stage(traceConnect, "检测到本机代理；优先使用 HTTP/1.1 连接 BPS")
+		}
+	}
 	response, err := selected.RoundTrip(request)
 	t.recordFailure(request.Context(), proxyKey, trace, err)
 	if response != nil && response.Body != nil {
 		response.Body = &bpsFeedbackBody{ReadCloser: response.Body, failed: func(err error) { t.recordFailure(request.Context(), proxyKey, trace, err) }}
 	}
 	return response, err
+}
+
+func preferHTTP1Proxy(proxy string) bool {
+	parsed, err := url.Parse(proxy)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
 }
 func (t *bpsTransport) http1Active(proxy string, now time.Time) bool {
 	key := sha256.Sum256([]byte(proxy))

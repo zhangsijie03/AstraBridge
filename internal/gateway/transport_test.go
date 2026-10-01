@@ -103,6 +103,21 @@ func TestBPSFallbackWaitsForNodeCooldown(t *testing.T) {
 	require.False(t, svc.http1Active(proxy, now.Add(2*time.Hour)), "unused pending state expires")
 }
 
+func TestBPSLocalProxyPrefersHTTP1(t *testing.T) {
+	for _, tc := range []struct {
+		proxy string
+		want  bool
+	}{
+		{proxy: "http://127.0.0.1:6789", want: true},
+		{proxy: "http://localhost:6789", want: true},
+		{proxy: "http://[::1]:6789", want: true},
+		{proxy: "http://proxy.example:8080", want: false},
+		{proxy: "", want: false},
+	} {
+		require.Equal(t, tc.want, preferHTTP1Proxy(tc.proxy), tc.proxy)
+	}
+}
+
 func TestBPSProductionTransportKeepsNativeHealthSettings(t *testing.T) {
 	g := New("local-key", "gpt-6-astra", nil, nil)
 	transport, ok := g.client.Transport.(*bpsTransport)

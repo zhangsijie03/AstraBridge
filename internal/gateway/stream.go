@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ const (
 	codeTimeout          = "upstream_timeout"
 	codeIncomplete       = "upstream_stream_incomplete"
 	codeConnection       = "upstream_connection_failed"
+	codeBackoff          = "upstream_connection_backoff"
 	codeResponseFailed   = "bps_response_failed"
 	codeUnsupported      = "unsupported_bps_request"
 	codeModelUnavailable = "basispoints_model_unavailable"
@@ -90,6 +93,17 @@ func setStreamFailure(result *Result, requestCtx, upstreamCtx context.Context, e
 		result.Message = "等待 BPS 响应超时；请求未自动重放，可稍后重试。"
 	}
 }
+
+func transientStreamFailure(err error) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var networkErr net.Error
+	return errors.As(err, &networkErr)
+}
 func writeFrame(w http.ResponseWriter, frame string) error {
 	// 慢速或已离线的客户端不能无限占用转发任务。测试 recorder 不支持此接口。
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(15 * time.Second))
@@ -145,6 +159,14 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 		}
 		if !ok || frame.err != nil {
 			setStreamFailure(result, r.Context(), ctx, frame.err)
+			if !result.Cancelled && transientStreamFailure(frame.err) {
+				delay := g.upstreamBackoff.failure()
+				seconds := backoffSeconds(delay)
+				result.Message = fmt.Sprintf("BPS 连接在响应完成前中断，代理正在冷却；请 %d 秒后重试。", seconds)
+				if !stream {
+					w.Header().Set("Retry-After", strconv.Itoa(seconds))
+				}
+			}
 			if !result.Cancelled {
 				if stream {
 					_ = writeFrame(w, failedFrame(result.Code, result.Message))
