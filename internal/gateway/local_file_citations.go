@@ -262,32 +262,10 @@ func safeLocalCitationPath(raw string) bool {
 
 func pathWithinLocalRoot(root, path string) bool {
 	root = filepath.Clean(root)
-	path = filepath.Clean(path)
-
-	// Windows runners may expose the same directory through an 8.3 short path
-	// such as RUNNER~1; compare file identities while walking parents so the
-	// allowlist remains correct across long and short path spellings.
-	rootInfo, err := os.Stat(root)
-	if err == nil {
-		for current := path; ; current = filepath.Dir(current) {
-			currentInfo, statErr := os.Stat(current)
-			if statErr == nil && os.SameFile(rootInfo, currentInfo) {
-				return true
-			}
-			parent := filepath.Dir(current)
-			if parent == current {
-				break
-			}
-		}
-	}
-
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		root = filepath.Clean(resolved)
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = filepath.Clean(resolved)
-	}
-	rel, err := filepath.Rel(root, path)
+	rel, err := filepath.Rel(root, filepath.Clean(path))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 

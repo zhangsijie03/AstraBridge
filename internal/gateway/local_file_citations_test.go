@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -65,7 +66,14 @@ func TestCitationRewriterHandlesSplitDeltas(t *testing.T) {
 func TestRewriteSSEFrameKeepsProtocolAndRewritesDelta(t *testing.T) {
 	_, citation := localCitationForTest(t)
 	r := newCitationRewriter(newLocalFileBroker(), "http://127.0.0.1:17861")
-	frame := "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"" + citation + "\"}\n\n"
+	payload, err := json.Marshal(map[string]any{
+		"type":          "response.output_text.delta",
+		"output_index":  0,
+		"content_index": 0,
+		"delta":         citation,
+	})
+	require.NoError(t, err)
+	frame := "event: response.output_text.delta\ndata: " + string(payload) + "\n\n"
 	got := rewriteSSEFrame(frame, r)
 	require.Contains(t, got, "event: response.output_text.delta")
 	require.Contains(t, got, "http://127.0.0.1:17861/v1/files/")
@@ -75,7 +83,20 @@ func TestRewriteSSEFrameKeepsProtocolAndRewritesDelta(t *testing.T) {
 func TestRewriteSSEFrameRewritesCompletedResponse(t *testing.T) {
 	_, citation := localCitationForTest(t)
 	r := newCitationRewriter(newLocalFileBroker(), "http://127.0.0.1:17861")
-	frame := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + citation + "\"}]}]}}\n\n"
+	payload, err := json.Marshal(map[string]any{
+		"type": "response.completed",
+		"response": map[string]any{
+			"output": []any{map[string]any{
+				"type": "message",
+				"content": []any{map[string]any{
+					"type": "output_text",
+					"text": citation,
+				}},
+			}},
+		},
+	})
+	require.NoError(t, err)
+	frame := "event: response.completed\ndata: " + string(payload) + "\n\n"
 	got := rewriteSSEFrame(frame, r)
 	require.Contains(t, got, "event: response.completed")
 	require.Contains(t, got, "http://127.0.0.1:17861/v1/files/")
