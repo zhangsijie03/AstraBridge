@@ -217,6 +217,7 @@ func (c *controller) start() error {
 		}
 		c.out.send(Event{Type: "request", Result: &r, Requests: c.count.Load()})
 	})
+	g.SetLocalFileBaseURL(fmt.Sprintf("http://127.0.0.1:%d", port))
 	g.SetRateLimits(&c.rateLimits)
 	// UI 日志使用有界队列，界面处理缓慢时丢弃诊断快照，不阻塞 BPS 转发。
 	traceEvents := make(chan gateway.TraceEvent, 256)

@@ -117,6 +117,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 	ticker := time.NewTicker(g.heartbeatInterval)
 	defer ticker.Stop()
 	frames := scanFrames(ctx, body)
+	citationRewriter := newCitationRewriter(g.fileBroker, g.localFileBaseURL)
 	for {
 		var frame streamFrame
 		var ok bool
@@ -153,6 +154,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 			}
 			return
 		}
+		frame.text = rewriteSSEFrame(frame.text, citationRewriter)
 		terminal := ""
 		toolDone := false
 		var final json.RawMessage

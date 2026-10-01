@@ -69,7 +69,7 @@ func TestEnableRestoreExact(t *testing.T) {
 		t.Fatal(e)
 	}
 	got := read(t, p)
-	if !strings.Contains(got, `model_provider = "bps_local"`) || !strings.Contains(got, `requires_openai_auth = true`) {
+	if !strings.Contains(got, `model_provider = "bps_local"`) || !strings.Contains(got, `requires_openai_auth = true`) || !strings.Contains(got, `stream_idle_timeout_ms = 3600000`) {
 		t.Fatal(got)
 	}
 	if e := m.Restore(); e != nil {

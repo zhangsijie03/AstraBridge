@@ -8,7 +8,7 @@
 - 原协议目录：`backend/internal/service/basispoints/`
 - 本地协议目录：`internal/basispoints/`
 
-61 个协议源码、测试与说明文件逐字节保持原样；另保留 1 个明确标注的图片共享代码提取文件。3 个 `backend/internal/util/transportdiag/` 文件原样抽离到 `internal/transportdiag/`。下载时核对固定提交目录树的 Git blob 哈希；`python3 scripts/check_upstream.py` 校验所有 65 个文件的 SHA-256。任何锁定文件改动、缺失或未登记新增都会阻止打包，没有豁免列表。
+59 个协议源码、测试与说明文件逐字节保持原样；2 个协议文件登记为星桥本地适配；另保留 1 个明确标注的图片共享代码提取文件。3 个 `backend/internal/util/transportdiag/` 文件原样抽离到 `internal/transportdiag/`。下载时核对固定提交目录树的 Git blob 哈希；`python3 scripts/check_upstream.py` 同时校验上游锁定文件、本地适配哈希和本地回归文件哈希。任何未登记文件或哈希漂移都会阻止打包。
 
 `upstream-manifest.json` 记录逐文件来源及哈希。图片辅助提取仍来自此前固定的 v2.8.17 提交，单独标注；`baseline_sha256` 留存 v2.8.11 历史记录。哈希清单不是上游签名。
 
@@ -37,7 +37,7 @@
 - HTTP/2 空闲 10 秒主动 PING，5 秒无应答关闭失活连接；使用 Go 标准库 HTTP2Config 实现上游 x/net/http2 的相同参数。明确的 HTTP 代理 H2 EOF/reset/协议故障仅影响后续同代理请求，试用 H1 一分钟，不重放失败请求；取消、普通 EOF、应用错误不触发降级。保留独立 H1/H2 连接池；本地最多记录 256 个代理摘要。
 - 等待响应头调整为原生默认 300 秒；附件上传仍为 60 秒。明确 Free 套餐按原生拒绝，未知套餐不会误判。
 
-宿主参考文件路径见 manifest 的 host_adapter_sources。独立桌面仍使用本地监听、固定 gpt-6-astra、手动启动、8 并发和请求体内存预算、20 分钟总时限及 15 秒写入时限。账号登录与刷新仍由 Codex 管理；不会写入登录文件。
+宿主参考文件路径见 manifest 的 host_adapter_sources。独立桌面仍使用本地监听、固定 gpt-6-astra、手动启动、8 并发和请求体内存预算、60 分钟总时限及 15 秒写入时限。账号登录与刷新仍由 Codex 管理；不会写入登录文件。
 
 ## 未启用的平台能力
 

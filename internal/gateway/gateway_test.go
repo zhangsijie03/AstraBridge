@@ -44,6 +44,13 @@ func gateway(t *testing.T, h http.HandlerFunc) *Gateway {
 	return g
 }
 
+func TestDefaultRequestTimeoutAllowsLongTurns(t *testing.T) {
+	g := New("local-key", "gpt-6-astra", testAccount, nil)
+	if g.requestTimeout != time.Hour {
+		t.Fatalf("unexpected default request timeout: %s", g.requestTimeout)
+	}
+}
+
 func TestRejectsUnauthorizedBeforeUpstream(t *testing.T) {
 	var called atomic.Int32
 	g := gateway(t, func(w http.ResponseWriter, r *http.Request) { called.Add(1) })

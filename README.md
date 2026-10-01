@@ -6,7 +6,7 @@
 
 macOS / Windows · 手动启停 · 固定 `gpt-6-astra` · 原生图片附件
 
-[下载最新版](https://github.com/zhangsijie03/AstraBridge/releases/latest) · [接入指南](#快速开始) · [图片说明](docs/native-images.md) · [报告问题](https://github.com/zhangsijie03/AstraBridge/issues)
+[下载最新版](https://github.com/zhangsijie03/AstraBridge/releases/latest) · [接入指南](#快速开始) · [图片说明](docs/native-images.md) · [本地文件引用](docs/local-file-links.md) · [报告问题](https://github.com/zhangsijie03/AstraBridge/issues)
 
 </div>
 
@@ -83,9 +83,15 @@ Windows 包含 .NET 运行时，无需另外安装。请保留 EXE 旁边的 `en
 
 详见 [图片支持与限制](docs/native-images.md)。模型能否正确理解图片仍取决于上游账号和模型。
 
+## 本地文件引用
+
+Codex 输出的本地引用会显示为 `【文件名:行号】 (<绝对路径:行号>)`。AiMaMi 的 Markdown 链接处理只允许 `http://`、`https://`、`mailto:` 和 `tel:`，因此星桥不会发送 `file://` 链接，而是把安全的本地引用转换成星桥自己的短期 HTTP 文件链接。点击后由系统浏览器打开只读文件内容。
+
+文件链接只在本机 `127.0.0.1` 上提供，使用随机不可猜测令牌，默认 24 小时失效，单文件最多 32 MiB。仅允许用户目录和临时目录中的普通文件，并拒绝 `.ssh`、`.aws`、`.codex`、Keychain、证书、密钥、`.env`、`auth.json` 和 `credentials` 等敏感路径。文件服务不接受 API Key，也不提供目录浏览；令牌失效或星桥重启后旧链接不可用。
+
 ## 账号、隐私与网络
 
-- 仅监听 `127.0.0.1`，使用随机本地 Key 校验请求，拒绝外部 Host 和浏览器 Origin。
+- Responses API 仅监听 `127.0.0.1`，使用随机本地 Key 校验请求，拒绝外部 Host 和浏览器 Origin；本地文件链接使用单独的短期令牌端点。
 - 每个请求重新读取当前账号；登录、切换和刷新由 Codex / AiMaMi 负责。星桥不保存或刷新 refresh token，不修改 `auth.json`。
 - 当前账号 access token 仅用于固定的 BPS 上游；本地 Key 不发送给 BPS，账号 token 不返回给客户端。
 - 不保存聊天正文、原图文件、登录 token 或上游原始错误正文。附件和回放缓存仅存在内存中。
@@ -118,7 +124,7 @@ macOS 沿用旧版目录，以保留已有地址和 Key。macOS 配置文件权�
 | 自动标题或结构化输出失败 | 采用 Sub2API 原生提示与本地 JSON/Schema 校验；校验失败会报错，不提供上游约束解码 |
 | 重启后继续旧聊天异常 | 回放缓存已清空，建议新建聊天 |
 
-提供 `/v1/models`、`/v1/responses` 和 `/v1/responses/compact`；不提供 Chat Completions 转换。仅带 `previous_response_id` 的增量历史不受支持。推理档位沿用上游转换：`max/ultra → xhigh`，`none/minimal → low`。收到上游成功响应头后，流式连接沿用原生 15 秒心跳间隔，并补充 `keepalive` 数据事件；它不包含模型文本，不计作上游进度，属于星桥兼容调整。HTTP/2 连接空闲 10 秒后发送健康探测，5 秒无应答关闭失活连接；20 分钟总超时仍生效。针对 Sub2API v2.9.6 的核查依据、调整边界见 [连接与日志审查](docs/connection-and-compact-log-review.md)。
+提供 `/v1/models`、`/v1/responses` 和 `/v1/responses/compact`；不提供 Chat Completions 转换。仅带 `previous_response_id` 的增量历史不受支持。推理档位沿用上游转换：`max/ultra → xhigh`，`none/minimal → low`。收到上游成功响应头后，流式连接沿用原生 15 秒心跳间隔，并补充 `keepalive` 数据事件；它不包含模型文本，不计作上游进度，属于星桥兼容调整。HTTP/2 连接空闲 10 秒后发送健康探测，5 秒无应答关闭失活连接；60 分钟总超时仍生效。针对 Sub2API v2.9.6 的核查依据、调整边界见 [连接与日志审查](docs/connection-and-compact-log-review.md)。
 
 报告问题时请附系统版本、星桥版本、操作步骤和脱敏错误提示。**不要上传 auth.json、relay.json、完整聊天、token 或 Key。**
 
@@ -141,7 +147,7 @@ scripts/             构建、来源校验与离线检查
 
 文本、工具及图片协议同步 [Sub2API v2.9.4](https://github.com/ranxi2001/sub2api/releases/tag/v2.9.4)，固定提交 `7dd10bfe4b635f226f0ddfa52cc65797697272d8`。沿用原生工具传输、批次校验及有限纠错，星桥网关接入原生工具目录继承、会话隔离、图片预校验及单次加密推理恢复。
 
-当前锁定 **62 个协议文件：61 个逐字节一致的 v2.9.4 文件、1 个明确标注的图片共享代码提取文件**。另原样沿用并校验 3 个传输诊断文件。桌面 UI、账号读取和独立网关是本项目适配代码，并非整个 Sub2API 平台的原封不动复制。完整边界见 [来源说明](docs/source-provenance.md) 和 [哈希清单](upstream-manifest.json)。
+当前锁定 **62 个协议文件：59 个逐字节一致的 v2.9.4 文件、2 个明确登记的星桥本地适配文件、1 个明确标注的图片共享代码提取文件**。另原样沿用并校验 3 个传输诊断文件。桌面 UI、账号读取和独立网关是本项目适配代码，并非整个 Sub2API 平台的原封不动复制。完整边界见 [来源说明](docs/source-provenance.md) 和 [哈希清单](upstream-manifest.json)。
 
 AstraBridge 原创代码按 [GPL-3.0-only](LICENSE) 开源；第三方代码保留各自许可证及归属，见 [NOTICE](NOTICE) 与 [licenses](licenses)。感谢 Sub2API 与原协议作者 [hloolx/codex2api](https://github.com/hloolx/codex2api)。
 

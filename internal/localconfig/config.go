@@ -13,8 +13,11 @@ import (
 	"github.com/pelletier/go-toml/v2/unstable"
 )
 
-const Provider = "bps_local"
-const providerLine = "model_provider = \"bps_local\"\n"
+const (
+	Provider            = "bps_local"
+	providerLine        = "model_provider = \"bps_local\"\n"
+	streamIdleTimeoutMS = 60 * 60 * 1000
+)
 
 type Manager struct {
 	ConfigPath string
@@ -168,7 +171,7 @@ func (m *Manager) Enable(port int, key string) error {
 	} else {
 		updated = append([]byte(providerLine), raw...)
 	}
-	s.Block = fmt.Sprintf("\n\n# BPS Local managed provider — restore using BPS Local\n[model_providers.bps_local]\nname = \"BPS Local\"\nbase_url = \"http://127.0.0.1:%d/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = true\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 1200000\n[model_providers.bps_local.http_headers]\nX-BPS-Local-Key = \"%s\"\n# BPS Local managed provider end\n", port, key)
+	s.Block = fmt.Sprintf("\n\n# BPS Local managed provider — restore using BPS Local\n[model_providers.bps_local]\nname = \"BPS Local\"\nbase_url = \"http://127.0.0.1:%d/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = true\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = %d\n[model_providers.bps_local.http_headers]\nX-BPS-Local-Key = \"%s\"\n# BPS Local managed provider end\n", port, streamIdleTimeoutMS, key)
 	updated = append(updated, []byte(s.Block)...)
 	if _, e = validate(updated); e != nil {
 		return errors.New("现有配置无法安全添加 BPS 服务，未作修改")

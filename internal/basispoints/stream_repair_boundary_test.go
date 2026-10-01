@@ -58,6 +58,9 @@ func TestUnknownToolRegenerationStopsAfterVisibleContent(t *testing.T) {
 				})
 				events := repairEvents(t, body)
 				require.Equal(t, tc.event["type"], events[0]["type"])
+				// Responses output_text parts are normalized at the wire boundary
+				// to keep strict clients compatible with file-citation metadata.
+				normalizeOutputTextWire(tc.event)
 				for key, value := range tc.event {
 					if key == "response" { // Response metadata is normalized by the bridge.
 						continue

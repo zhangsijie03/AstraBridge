@@ -18,7 +18,10 @@ import (
 	"bpslocal/internal/identity"
 )
 
-const MaxBody = 64 << 20
+const (
+	MaxBody               = 64 << 20
+	defaultRequestTimeout = time.Hour
+)
 
 type Result struct {
 	Cancelled bool     `json:"cancelled,omitempty"`
@@ -50,6 +53,8 @@ type Gateway struct {
 	replay            basispoints.ReplayCache
 	catalog           basispoints.CatalogCache
 	attachments       basispoints.AttachmentCache
+	fileBroker        *localFileBroker
+	localFileBaseURL  string
 	bodyBytes         atomic.Int64
 	report            func(Result)
 	slots             chan struct{}
@@ -62,7 +67,11 @@ func New(key, model string, accountSource func() (identity.Account, error), repo
 	transport.ForceAttemptHTTP2 = true
 	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: 10 * time.Second, PingTimeout: 5 * time.Second}
 	transport.MaxIdleConnsPerHost = 8
-	return &Gateway{rateLimits: &RateLimits{}, model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: 20 * time.Minute, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: newBPSTransport(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8)}
+	return &Gateway{rateLimits: &RateLimits{}, model: model, accountSource: accountSource, heartbeatInterval: 15 * time.Second, requestTimeout: defaultRequestTimeout, key: key, endpoint: basispoints.ResponsesURL, client: &http.Client{Transport: newBPSTransport(transport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, report: report, slots: make(chan struct{}, 8), fileBroker: newLocalFileBroker()}
+}
+
+func (g *Gateway) SetLocalFileBaseURL(baseURL string) {
+	g.localFileBaseURL = strings.TrimRight(baseURL, "/")
 }
 func (g *Gateway) emit(r Result) {
 	if g.report != nil {
@@ -80,7 +89,21 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		host = r.Host
 	}
-	if host != "127.0.0.1" || r.Header.Get("Origin") != "" || g.key == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+g.key)) != 1 {
+	if host != "127.0.0.1" || g.key == "" {
+		problem(w, 403, "local_access_denied", "本地访问验证失败")
+		return
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		if strings.HasPrefix(r.URL.Path, "/v1/files/") && r.Header.Get("Origin") == "" {
+			token := strings.TrimPrefix(r.URL.Path, "/v1/files/")
+			if g.fileBroker != nil && g.fileBroker.serve(w, r, token) {
+				return
+			}
+			problem(w, http.StatusNotFound, "file_not_found", "本地文件链接已失效或文件不可读取")
+			return
+		}
+	}
+	if r.Header.Get("Origin") != "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+g.key)) != 1 {
 		problem(w, 403, "local_access_denied", "本地访问验证失败")
 		return
 	}

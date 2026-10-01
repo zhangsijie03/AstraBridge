@@ -154,8 +154,6 @@
     "replay_cache_test.go",
     "request.go",
     "request_compatibility_test.go",
-    "stream.go",
-    "stream_repair_boundary_test.go",
     "structured_output.go",
     "structured_output_test.go",
     "terminal_tools_test.go",
@@ -200,5 +198,20 @@
     "backend/internal/repository/http_upstream.go",
     "backend/internal/service/openai_excel_bps_ratelimit.go",
     "backend/internal/service/ratelimit_service.go"
-  ]
+  ],
+  "local_patches": {
+    "stream.go": {
+      "upstream_sha256": "21cfb72b936198ca2ca099c2101c671bcf76ab302b12a0322c3931229415c0bd",
+      "local_sha256": "51cffa82401dd33672d5cb9e5da029f90dcee289df8f824eec4f1906fedcf88f",
+      "reason": "AstraBridge wire compatibility repair for long-running Responses clients"
+    },
+    "stream_repair_boundary_test.go": {
+      "upstream_sha256": "52c6d96e40670ad1e3583fb0164ded7630303ae6ec4223413595cf406e851029",
+      "local_sha256": "ba0da6bd4d2f079a3eb76b7bf212e405418362a3e66b3fd2f63774d185014e3d",
+      "reason": "AstraBridge wire compatibility repair for long-running Responses clients"
+    }
+  },
+  "local_files": {
+    "output_wire_test.go": "a5e7523dfb622838ab0297cf53f0a8a4d897409339ec882df96831fa114b42eb"
+  }
 }

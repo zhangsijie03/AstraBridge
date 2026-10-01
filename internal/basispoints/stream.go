@@ -147,6 +147,10 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 		if kind == "" {
 			kind = event
 		}
+		// Keep the Responses wire shape stable for strict clients. Sub2API
+		// emits output_text annotations/logprobs even when they are empty;
+		// dropping those fields makes file citations degrade to plain text.
+		normalizeOutputTextWire(payload)
 		if b.structured != nil && kind == "response.completed" {
 			if response, ok := payload["response"].(object); !ok || response == nil {
 				return fmt.Errorf("basispoints structured output is missing its terminal response")
@@ -325,6 +329,51 @@ func hasVisibleStreamContent(kind string, payload object) bool {
 		}
 	}
 	return false
+}
+
+// normalizeOutputTextWire preserves the required Responses message-part
+// fields at every streaming boundary. Existing annotations are untouched;
+// only missing zero-value arrays are added for client compatibility.
+func normalizeOutputTextWire(payload object) {
+	if part, ok := payload["part"].(object); ok {
+		normalizeOutputTextPart(part)
+	}
+	if item, ok := payload["item"].(object); ok {
+		normalizeOutputTextItem(item)
+	}
+	if response, ok := payload["response"].(object); ok {
+		output, _ := response["output"].([]any)
+		for _, raw := range output {
+			item, _ := raw.(object)
+			normalizeOutputTextItem(item)
+		}
+	}
+}
+
+func normalizeOutputTextItem(item object) {
+	if text(item["type"]) != "message" {
+		return
+	}
+	content, _ := item["content"].([]any)
+	for _, raw := range content {
+		part, _ := raw.(object)
+		normalizeOutputTextPart(part)
+	}
+}
+
+func normalizeOutputTextPart(part object) {
+	if text(part["type"]) != "output_text" {
+		return
+	}
+	if _, exists := part["text"]; !exists {
+		part["text"] = ""
+	}
+	if _, exists := part["annotations"]; !exists {
+		part["annotations"] = []any{}
+	}
+	if _, exists := part["logprobs"]; !exists {
+		part["logprobs"] = []any{}
+	}
 }
 
 func readEvents(reader io.Reader, consume func(string, []byte) error) error {
