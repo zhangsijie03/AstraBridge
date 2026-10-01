@@ -75,8 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var startButton: RelayPowerButton!
     private let startActionLabel = NSTextField(labelWithString: "启动中转")
     private var testButton: NSButton!
+    private var updateButton: NSButton!
     private let spinner = NSProgressIndicator()
     private let dataDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(Product.stateDirectory)
+    private let updateChecker = UpdateChecker()
+    private var updateInProgress = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildWindow()
@@ -96,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         launchEngine()
+        checkForUpdates(manual: false)
     }
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular, secondary: Bool = false) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)
@@ -265,9 +269,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let help = NSButton(title: "接入指南", target: self, action: #selector(openHelp))
         let directory = NSButton(title: "配置目录", target: self, action: #selector(openBackup))
-        [help, directory].forEach { $0.bezelStyle = .inline; $0.font = .systemFont(ofSize: 11) }
+        updateButton = NSButton(title: "检查更新", target: self, action: #selector(checkUpdates))
+        [help, directory, updateButton].forEach { $0.bezelStyle = .inline; $0.font = .systemFont(ofSize: 11) }
         let guide = stack([
-            stack([label("接入 AiMaMi", size: 12, weight: .semibold), spacer(), directory, help], spacing: 12),
+            stack([label("接入 AiMaMi", size: 12, weight: .semibold), spacer(), updateButton, directory, help], spacing: 12),
             label("中转注入 → 自定义中转模型，填入以上三项，协议选择 Responses。", size: 11, secondary: true)
         ], vertical: true, spacing: 6)
         add(guide, gap: 14)
@@ -282,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let mainMenu = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu()
         appMenu.addItem(withTitle: "关于 \(Product.name)", action: #selector(openAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: "检查更新", action: #selector(checkUpdates), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出 \(Product.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu; mainMenu.addItem(appItem)
@@ -418,6 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         startButton.bezelColor = active ? nil : InterfaceStyle.accent
         startButton.isEnabled = !value && available && !preview
         testButton.isEnabled = !value && available && !preview
+        updateButton?.isEnabled = !value && !updateInProgress && !preview
         if !value { testButton.title = "测试连接" }
         copyURLButton.isEnabled = !relayBaseURL.isEmpty
         copyKeyButton.isEnabled = !relayAPIKey.isEmpty
@@ -462,6 +469,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         copy(relayAPIKey, using: copyKeyButton)
     }
     @objc private func copyModel() { copy(fixedModelID, using: copyModelButton) }
+    @objc private func checkUpdates() { checkForUpdates(manual: true) }
+    private func checkForUpdates(manual: Bool) {
+        guard !preview, !updateInProgress else { return }
+        updateButton?.isEnabled = false
+        updateChecker.check(currentVersion: Product.version) { [weak self] result in
+            guard let self = self else { return }
+            self.updateButton?.isEnabled = !self.updateInProgress
+            switch result {
+            case .success(nil):
+                if manual {
+                    let alert = NSAlert(); alert.messageText = "已是最新版本"; alert.informativeText = "当前版本为 \(Product.version)。"; alert.addButton(withTitle: "完成"); alert.beginSheetModal(for: self.window)
+                }
+            case .success(let update?):
+                let alert = NSAlert()
+                alert.messageText = "发现新版本 \(update.version)"
+                alert.informativeText = "当前版本：\(Product.version)\n\n\(self.releaseNotes(update.notes))\n\n将从 GitHub 下载并校验后自动重启。"
+                alert.addButton(withTitle: "下载并安装")
+                alert.addButton(withTitle: "稍后")
+                alert.beginSheetModal(for: self.window) { [weak self] response in
+                    guard response == .alertFirstButtonReturn else { return }
+                    self?.downloadAndInstall(update)
+                }
+            case .failure(let error):
+                if manual {
+                    let alert = NSAlert(); alert.messageText = "检查更新失败"; alert.informativeText = error.localizedDescription; alert.addButton(withTitle: "完成"); alert.beginSheetModal(for: self.window)
+                }
+            }
+        }
+    }
+    private func releaseNotes(_ notes: String) -> String {
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 900 else { return trimmed.isEmpty ? "该版本未提供发行说明。" : trimmed }
+        return String(trimmed.prefix(900)) + "…"
+    }
+    private func downloadAndInstall(_ update: AppUpdate) {
+        guard !updateInProgress else { return }
+        updateInProgress = true
+        setBusy(true)
+        statusLabel.stringValue = "正在准备更新"
+        detailLabel.stringValue = "正在下载并校验版本 \(update.version)，请不要退出应用。"
+        updateChecker.stage(update) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .failure(let error):
+                self.updateInProgress = false; self.showError(error.localizedDescription)
+            case .success(let staged):
+                do {
+                    try self.updateChecker.launchUpdater(staged: staged, replacing: Bundle.main.bundleURL, waitingFor: ProcessInfo.processInfo.processIdentifier)
+                    self.statusLabel.stringValue = "更新已准备"
+                    self.detailLabel.stringValue = "应用将关闭并自动重启到版本 \(staged.version)。"
+                    NSApp.terminate(nil)
+                } catch {
+                    self.updateInProgress = false; self.showError(error.localizedDescription)
+                }
+            }
+        }
+    }
     @objc private func openHelp() {
         let alert = NSAlert()
         alert.messageText = "将星桥接入 AiMaMi"

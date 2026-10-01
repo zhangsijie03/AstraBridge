@@ -6,6 +6,8 @@ Windows 10/11 x64 原生桌面版，.NET 8 WinForms，自包含发布；解压�
 
 数据默认保存到 `%LOCALAPPDATA%\AstraBridge`。账号默认读取 `%USERPROFILE%\.codex`，支持启动进程继承 `CODEX_HOME`。代理继承 `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`；暂不读取 Windows PAC 或系统代理。环境变量变更后重新打开程序。
 
+应用启动时会后台检查 GitHub 最新 Release，也可以点击“检查更新”。更新下载完成后先校验 SHA256SUMS.txt，再关闭引擎、替换程序文件并自动重启；%LOCALAPPDATA%\AstraBridge 中的配置不会被覆盖。若安装目录不可写，Windows 会显示错误并保留当前版本。
+
 ## 构建与验证
 
 需要 Go 和 .NET 8 SDK（构建机需要联网还原 Windows Desktop 引用与运行时包）。在仓库根目录执行：

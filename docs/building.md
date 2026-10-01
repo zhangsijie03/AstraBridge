@@ -38,6 +38,8 @@ Windows 原生界面使用 WinForms，通过 UTF-8 与 Go JSON 行协议通信�
 
 Windows UI 的 `--preview` 使用合成数据。`--smoke-test --smoke-report <文件>` 在独立临时目录启动引擎，验证初始停止状态、契约和退出，不读取真实账号或发送上游请求。
 
+应用内更新依赖发行包名称与版本严格匹配：macOS 使用 AstraBridge-版本-macOS-arm64.zip，Windows 使用 AstraBridge-版本-Windows-x64.zip，并且必须同时发布 SHA256SUMS.txt。若只上传单个平台包，另一平台会安全地提示发行包不完整并继续使用当前版本。
+
 ## 引擎选项
 
 - `--codex-home <目录>`：指定 `auth.json` / `config.toml` 所在目录，默认使用 `CODEX_HOME` 或用户目录下 `.codex`。

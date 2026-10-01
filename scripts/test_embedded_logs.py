@@ -97,6 +97,6 @@ try delegate.verifyEmbeddedLog()
 '''
 (output / 'main.swift').write_text(source + '\n' + checks)
 subprocess.run(['swiftc', '-swift-version', '5', '-module-cache-path', str(root / '.build/swift-cache'),
-                str(root / 'app/Interface.swift'), str(root / 'app/TransferLog.swift'), str(output / 'main.swift'),
+                str(root / 'app/Interface.swift'), str(root / 'app/TransferLog.swift'), str(root / 'app/UpdateChecker.swift'), str(output / 'main.swift'),
                 '-o', str(output / 'verify'), '-framework', 'AppKit', '-framework', 'CFNetwork'], check=True)
 subprocess.run([str(output / 'verify'), '--preview'], check=True)

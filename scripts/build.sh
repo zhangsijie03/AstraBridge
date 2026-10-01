@@ -9,7 +9,7 @@ export GOOS=darwin GOARCH=arm64 CGO_ENABLED=0
 APP="${BPS_APP_PATH:-dist/AstraBridge.app}"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" .build
 "$GO_BIN" build -mod=vendor -trimpath -o "$APP/Contents/Resources/bps-local" ./cmd/bps-local
-swiftc -target arm64-apple-macosx13.0 -swift-version 5 -O -module-cache-path .build/swift-cache app/Interface.swift app/TransferLog.swift app/main.swift -o "$APP/Contents/MacOS/AstraBridge" -framework AppKit -framework CFNetwork
+swiftc -target arm64-apple-macosx13.0 -swift-version 5 -O -module-cache-path .build/swift-cache app/Interface.swift app/TransferLog.swift app/UpdateChecker.swift app/main.swift -o "$APP/Contents/MacOS/AstraBridge" -framework AppKit -framework CFNetwork
 swiftc -module-cache-path .build/swift-cache scripts/make_icon.swift -o .build/make-icon
 .build/make-icon .build/AstraBridge.iconset
 iconutil -c icns .build/AstraBridge.iconset -o "$APP/Contents/Resources/AstraBridge.icns"
