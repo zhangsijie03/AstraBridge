@@ -159,10 +159,28 @@ final class UpdateChecker {
         source="$2"
         pid="$3"
         cleanup="$4"
+        log="$cleanup/update.log"
+        exec >>"$log" 2>&1
+        echo "AstraBridge updater started at $(date)"
+        echo "target=$target source=$source pid=$pid"
         tries=0
         while kill -0 "$pid" 2>/dev/null; do
           tries=$((tries + 1))
-          if [ "$tries" -gt 240 ]; then exit 10; fi
+          if [ "$tries" -gt 120 ]; then
+            echo "旧应用未在 30 秒内退出，发送 TERM"
+            kill -TERM "$pid" 2>/dev/null || true
+            force_tries=0
+            while kill -0 "$pid" 2>/dev/null && [ "$force_tries" -lt 8 ]; do
+              force_tries=$((force_tries + 1))
+              sleep 0.25
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+              echo "旧应用仍未退出，发送 KILL"
+              kill -KILL "$pid" 2>/dev/null || true
+              sleep 0.5
+            fi
+            break
+          fi
           sleep 0.25
         done
         sleep 0.5
@@ -180,7 +198,9 @@ final class UpdateChecker {
         APPLESCRIPT
         fi
         if [ ! -d "$target" ]; then exit 11; fi
+        echo "replacement complete"
         open "$target"
+        echo "relaunch requested"
         rm -rf "$cleanup"
         rm -f "$0"
         """

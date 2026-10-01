@@ -250,11 +250,15 @@ func (c *controller) start() error {
 	return nil
 }
 func (c *controller) stop() error {
-	if c.server != nil {
-		if err := c.server.Close(); err != nil {
+	server := c.server
+	c.server = nil
+	if server != nil {
+		if err := server.Close(); err != nil {
+			// 关闭流程必须先释放引用，即使底层 listener 已经被系统回收。
+			// 这样 quit 命令仍能结束主进程，避免桌面更新器永久等待旧 PID。
+			c.status(phaseStopped, "本地中转已停止；AiMaMi 中保存的地址和 API Key 可在下次启动后继续使用。")
 			return err
 		}
-		c.server = nil
 	}
 	c.status(phaseStopped, "本地中转已停止；AiMaMi 中保存的地址和 API Key 可在下次启动后继续使用。")
 	return nil
@@ -367,9 +371,9 @@ func main() {
 					out.send(Event{Type: "state", Phase: p, Account: a.MaskedEmail, Model: c.model, Message: "BPS 连通性验证通过；这不代表模型质量评测", Requests: c.count.Load()})
 				}
 			case "quit":
-				if e = c.stop(); e == nil {
-					return
-				}
+				// quit 是进程级退出协议；即使 listener 已被并发关闭，也必须结束主进程。
+				_ = c.stop()
+				return
 			default:
 				e = errors.New("不支持的操作")
 			}

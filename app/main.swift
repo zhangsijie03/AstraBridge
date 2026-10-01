@@ -1,5 +1,6 @@
 import AppKit
 import CFNetwork
+import Darwin
 
 private enum EnginePhase: String, Decodable { case idle, testing, enabled, stopped, error }
 private enum EngineAction: String, Encodable { case start, stop, probe, quit }
@@ -56,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let output = Pipe()
     private var outputBuffer = Data()
     private var closing = false
+    private var terminationFallback: DispatchWorkItem?
     private var busy = false
     private var active = false
     private let preview = CommandLine.arguments.contains("--preview") || Bundle.main.object(forInfoDictionaryKey: "AstraBridgePreview") as? Bool == true
@@ -324,6 +326,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         task.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                self.terminationFallback?.cancel()
+                self.terminationFallback = nil
                 self.process = nil
                 if self.closing { NSApp.reply(toApplicationShouldTerminate: true) }
                 else {
@@ -448,6 +452,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if action == .probe { testButton.title = "测试中…" }
         } catch { showError("无法与后台通信，请重新打开应用") }
     }
+    // 退出应用时优先走引擎自己的 quit 命令，确保 HTTP 服务和请求上下文先收敛。
+    // 远端请求或管道异常时再使用信号兜底，避免更新器无限等待旧 PID。
+    private func requestEngineQuit() {
+        guard let process = process, process.isRunning else { return }
+        do {
+            var data = try JSONEncoder().encode(Command(action: .quit)); data.append(10)
+            try input.fileHandleForWriting.write(contentsOf: data)
+            if busy {
+                // 测试请求在引擎主循环内同步执行，额外发 SIGINT 让其立刻取消上下文。
+                process.interrupt()
+            }
+        } catch {
+            process.terminate()
+        }
+        let fallback = DispatchWorkItem { [weak self, weak process] in
+            guard let self = self, self.closing, let process = process, process.isRunning else { return }
+            process.terminate()
+            let force = DispatchWorkItem { [weak self, weak process] in
+                guard let self = self, self.closing, let process = process, process.isRunning else { return }
+                kill(process.processIdentifier, SIGKILL)
+            }
+            self.terminationFallback = force
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: force)
+        }
+        terminationFallback = fallback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: fallback)
+    }
     @objc private func start() { send(.start) }
     @objc private func test() { send(.probe) }
     @objc private func stop() { send(.stop) }
@@ -550,9 +581,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool { NSApp.terminate(nil); return false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard process?.isRunning == true else { return .terminateNow }
-        if closing { return .terminateCancel }
+        if closing { return .terminateLater }
         closing = true
-        if busy { process?.interrupt() } else { send(.quit) }
+        requestEngineQuit()
         return .terminateLater
     }
 }
