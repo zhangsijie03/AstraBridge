@@ -13,6 +13,16 @@ local_files = manifest.get("local_files", {})
 actual = {path.name for path in package.iterdir() if path.is_file()}
 allowed = set(expected) | set(patches) | set(local_files)
 errors = []
+# 分类清单决定下次同步时哪些文件可以原样覆盖，不能把兼容补丁标成原样文件。
+unmodified = manifest["unmodified_files"]
+if len(unmodified) != len(set(unmodified)):
+    errors.append("Duplicate unmodified file entries")
+if set(unmodified) != set(expected) - set(patches):
+    errors.append("Unmodified file list must exactly match upstream files without local patches")
+if set(local_files) & (set(expected) | set(patches)):
+    errors.append("Local-only files overlap imported upstream files")
+if set(manifest["excluded_upstream_files"]) & allowed:
+    errors.append("Excluded upstream files overlap imported or local files")
 for name in sorted(actual - allowed):
     errors.append(f"Unexpected local file: {name}")
 for name, digest in expected.items():
@@ -49,5 +59,5 @@ if errors:
     raise SystemExit("\n".join(errors))
 unchanged = len(expected) - len(patches)
 print(f"PASS: {unchanged} unchanged and {len(patches)} locally adapted {manifest['tag']} protocol files "
-      f"({manifest['commit']}), {len(local_files)} local files, 1 documented image helper extraction; "
+      f"({manifest['commit']}), {len(local_files)} local files (including the documented image helper extraction); "
       f"{len(transport['sha256'])} unchanged native transport files")

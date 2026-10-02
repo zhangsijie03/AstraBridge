@@ -8,7 +8,7 @@
 - 原协议目录：`backend/internal/service/basispoints/`
 - 本地协议目录：`internal/basispoints/`
 
-62 个协议源码、测试与说明文件逐字节保持原样；2 个协议文件登记为星桥本地适配；另保留 1 个明确标注的图片共享代码提取文件，并登记 2 个本地回归文件。3 个 `backend/internal/util/transportdiag/` 文件原样抽离到 `internal/transportdiag/`。下载时核对固定提交目录树的 Git blob 哈希；`python3 scripts/check_upstream.py` 同时校验上游锁定文件、本地适配哈希和本地回归文件哈希。任何未登记文件或哈希漂移都会阻止打包。
+60 个协议源码、测试与说明文件逐字节保持原样；4 个协议文件（含测试）登记为星桥本地适配；另有 2 个本地文件：明确标注的图片共享代码提取文件 `image_attachment_support.go` 和回归测试 `output_wire_test.go`。3 个 `backend/internal/util/transportdiag/` 文件原样抽离到 `internal/transportdiag/`。下载时核对固定提交目录树的 Git blob 哈希；`python3 scripts/check_upstream.py` 同时校验来源分类、上游锁定文件、本地适配哈希和本地文件哈希。任何未登记文件、分类冲突或哈希漂移都会阻止打包。
 
 `upstream-manifest.json` 记录逐文件来源及哈希。图片辅助提取仍来自此前固定的提取提交，单独标注；`baseline_sha256` 留存 v2.8.11 历史记录。哈希清单不是上游签名。
 
@@ -43,9 +43,12 @@
 
 核对 Sub2API `production` 最新提交 `bf9405e4ab58c1be4fc8ec2101371753a016908e` 后，已将 BPS 请求、历史消息、图片校验、附件限制和工具示例等原生文件逐文件同步。此前在 0.5.14 由星桥临时移植的目录驱动工具示例与兼容消息 ID 清理现已成为上游原生实现，因此不再登记为本地补丁。
 
-星桥保留两项确实属于本地网关的适配：`stream.go` 在 Responses `output_text` 边界补齐空的 `annotations` / `logprobs` 字段，避免严格客户端丢失文件引用；`stream_repair_boundary_test.go` 覆盖该行为。原生附件上传仍由星桥 `internal/gateway` 负责，使用同一 BPS `openai_file_id` 契约、账号头和 60 秒超时。
+星桥保留两类本地网关适配，共涉及 4 个上游文件：`stream.go` 在 Responses `output_text` 边界补齐空的 `annotations` / `logprobs` 字段，避免严格客户端丢失文件引用，`stream_repair_boundary_test.go` 同步适配该行为；`request.go` 移植上游宿主的 6.1 Sol 推理强度校验，拒绝 `none` / `minimal`，并由 `basispoints_test.go` 补充回归覆盖。原生附件上传仍由星桥 `internal/gateway` 负责，使用同一 BPS `openai_file_id` 契约、账号头和 60 秒超时。
 
 production 同时新增了服务端公网图片中继、route、普通 Codex 模型目录与 Prism 会话能力。星桥只暴露 `gpt-6-astra` 与 `gpt-6.1-sol` 两个本地路由，继续使用本机原生附件上传，因此这些平台能力不搬入本地网关。
+
+0.5.17 发布后的再次核查确认，上游 production 与当前基线之间新增提交为 0；逐文件证据与平台差异见 [2026-10-02 上游差异核查](upstream-review-2026-10-02.md)。
+
 ## 未启用的平台能力
 
 不搬入平台数据库、账号池切换、计费、OAuth 刷新、403 自动停用/恢复探测或 Mihomo 节点调度。星桥只有当前账号和本机代理；401/403/429 不自动切换账号。原生图片数量策略默认 off，保持手动 compact；不启用自动图片压缩、忽略图片或忽略加密正文等可选功能，避免静默丢失上下文。
