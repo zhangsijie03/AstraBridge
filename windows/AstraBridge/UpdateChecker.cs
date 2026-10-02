@@ -71,9 +71,13 @@ internal sealed class UpdateChecker : IDisposable
             var checksum = Path.Combine(staging, ChecksumAsset);
             await DownloadToAsync(update.ArchiveUri, archive, cancellationToken);
             await DownloadToAsync(update.ChecksumUri, checksum, cancellationToken);
-            VerifyChecksum(archive, checksum, $"AstraBridge-{update.Version}-Windows-x64.zip");
             var extracted = Path.Combine(staging, "extracted");
-            ZipFile.ExtractToDirectory(archive, extracted, overwriteFiles: true);
+            // 大包校验与解压不占用 UI 线程，窗口关闭及进度动画仍能响应。
+            await Task.Run(() =>
+            {
+                VerifyChecksum(archive, checksum, $"AstraBridge-{update.Version}-Windows-x64.zip");
+                ZipFile.ExtractToDirectory(archive, extracted, overwriteFiles: true);
+            }, cancellationToken);
             var executable = Directory.EnumerateFiles(extracted, "AstraBridge.exe", SearchOption.AllDirectories).FirstOrDefault();
             if (executable is null) throw new InvalidDataException("更新包中未找到 AstraBridge.exe。");
             var packageDirectory = Path.GetDirectoryName(executable) ?? throw new InvalidDataException("更新包目录无效。");
@@ -88,7 +92,10 @@ internal sealed class UpdateChecker : IDisposable
 
     public void EnsureInstallLocationWritable()
     {
-        var probe = Path.Combine(AppContext.BaseDirectory, $".update-probe-{Guid.NewGuid():N}");
+        // 更新采用同级目录原子替换，必须提前检查父目录权限。
+        var parent = Directory.GetParent(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory))?.FullName
+            ?? throw new UnauthorizedAccessException("不能在磁盘根目录执行更新，请将应用放入单独目录。");
+        var probe = Path.Combine(parent, $".update-probe-{Guid.NewGuid():N}");
         try
         {
             File.WriteAllText(probe, "AstraBridge update probe", Encoding.UTF8);
@@ -107,39 +114,56 @@ internal sealed class UpdateChecker : IDisposable
         File.WriteAllText(script, """
 param([string]$target, [string]$source, [int]$processId, [string]$cleanup)
 $ErrorActionPreference = 'Stop'
-for ($attempt = 0; $attempt -lt 240; $attempt++) {
-    if (-not (Get-Process -Id $processId -ErrorAction SilentlyContinue)) { break }
-    Start-Sleep -Milliseconds 250
-}
-if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { exit 10 }
-Start-Sleep -Milliseconds 500
-$temporary = "$target.update"
-$backup = "$target.previous"
-Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $temporary -Force | Out-Null
-Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $temporary -Recurse -Force
-if (-not (Test-Path -LiteralPath (Join-Path $temporary 'AstraBridge.exe'))) { exit 11 }
-$hadTarget = Test-Path -LiteralPath $target
-if ($hadTarget) { Move-Item -LiteralPath $target -Destination $backup -Force }
+# BaseDirectory 自带尾分隔符；不去掉会把备份建在旧应用内部，导致移动失败。
+$target = [IO.Path]::GetFullPath($target).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+$token = Split-Path -Leaf $cleanup
+$temporary = "$target.update-$token"
+$backup = "$target.previous-$token"
+$log = Join-Path $cleanup 'update.log'
+$moved = $false
+$installed = $false
 try {
+    "AstraBridge updater started: $(Get-Date)" | Out-File -LiteralPath $log -Encoding utf8
+    for ($attempt = 0; $attempt -lt 240; $attempt++) {
+        if (-not (Get-Process -Id $processId -ErrorAction SilentlyContinue)) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { throw 'Old app did not exit; keeping current version.' }
+    Start-Sleep -Milliseconds 500
+    # 完整复制后再移动旧版；替换或重启失败均恢复旧版，并保留诊断日志。
+    Copy-Item -LiteralPath $source -Destination $temporary -Recurse -Force
+    if (-not (Test-Path -LiteralPath (Join-Path $temporary 'AstraBridge.exe'))) { throw 'Package executable missing.' }
+    Move-Item -LiteralPath $target -Destination $backup -Force
+    $moved = $true
     Move-Item -LiteralPath $temporary -Destination $target -Force
+    $installed = $true
     Start-Process -FilePath (Join-Path $target 'AstraBridge.exe')
 }
 catch {
-    Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
-    if ($hadTarget -and (Test-Path -LiteralPath $backup)) { Move-Item -LiteralPath $backup -Destination $target -Force }
+    "Update failed: $_" | Add-Content -LiteralPath $log
+    try {
+        if ($moved) {
+            if ($installed) { Remove-Item -LiteralPath $target -Recurse -Force }
+            Move-Item -LiteralPath $backup -Destination $target -Force
+        }
+        if (-not (Get-Process -Id $processId -ErrorAction SilentlyContinue)) {
+            Start-Process -FilePath (Join-Path $target 'AstraBridge.exe')
+        }
+    }
+    catch { "Rollback/relaunch failed: $_; backup=$backup" | Add-Content -LiteralPath $log }
     exit 12
 }
+finally { Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue }
 Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $cleanup -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """, Encoding.UTF8);
         var start = new ProcessStartInfo("powershell.exe")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden
+            WindowStyle = ProcessWindowStyle.Hidden,
+            // 更新器不能把待替换目录当作当前工作目录，否则 Windows 会拒绝移动。
+            WorkingDirectory = Path.GetTempPath()
         };
         start.ArgumentList.Add("-NoProfile");
         start.ArgumentList.Add("-ExecutionPolicy");
@@ -159,11 +183,14 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 
     private async Task DownloadToAsync(Uri uri, string destination, CancellationToken cancellationToken)
     {
-        using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        // ResponseHeadersRead 的 HttpClient 超时只覆盖响应头；正文另设总期限。
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(10));
+        using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         response.EnsureSuccessStatusCode();
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var source = await response.Content.ReadAsStreamAsync(timeout.Token);
         await using var target = File.Create(destination);
-        await source.CopyToAsync(target, cancellationToken);
+        await source.CopyToAsync(target, timeout.Token);
     }
 
     private static void VerifyChecksum(string archive, string checksumFile, string expectedName)

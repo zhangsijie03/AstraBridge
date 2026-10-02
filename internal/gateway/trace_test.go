@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,32 @@ import (
 	"testing"
 	"time"
 )
+
+func TestTransportFailureLogsEvidenceWithoutRawError(t *testing.T) {
+	var capture traceCapture
+	g := New("local-secret", "gpt-6-astra", nil, nil)
+	g.SetTraceObserver(capture.add)
+	ctx, trace := g.beginTrace(context.Background())
+	trace.transportFailure(bpsPolicyTrace("h2"), errors.New("malformed HTTP response SECRET-PROMPT http://user:password@proxy.test"))
+	trace.result(Result{Code: codeConnection, Status: 502})
+	trace.finish(ctx, false)
+	events := capture.snapshot()
+	last := events[len(events)-1]
+	for _, evidence := range []string{"transport_error", "协议 h2", "阶段 connection_ready"} {
+		if !strings.Contains(last.Message, evidence) {
+			t.Fatalf("missing %s: %+v", evidence, last)
+		}
+	}
+	raw, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"SECRET-PROMPT", "password", "proxy.test", "local-secret"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatal("diagnostics leaked sensitive error text")
+		}
+	}
+}
 
 type traceCapture struct {
 	mu     sync.Mutex

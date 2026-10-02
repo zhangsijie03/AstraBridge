@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net/http"
@@ -34,6 +35,13 @@ func newBPSTransport(h2 *http.Transport) *bpsTransport {
 	protocols.SetHTTP1(true)
 	h1.Protocols = protocols
 	h1.ForceAttemptHTTP2 = false
+	// Clone 会初始化并继承 H2 的 ALPN；只设置 Protocols 不会清掉它。
+	// 同时约束 TLS 协商与协议处理器，避免服务端发 H2 帧而客户端按 H1 读取。
+	if h1.TLSClientConfig == nil {
+		h1.TLSClientConfig = &tls.Config{}
+	}
+	h1.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	h1.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	return &bpsTransport{h2: h2, h1: h1, fallbacks: make(map[[32]byte]bpsHTTP2Fallback)}
 }
 func (t *bpsTransport) CloseIdleConnections() {
@@ -67,9 +75,17 @@ func (t *bpsTransport) RoundTrip(request *http.Request) (*http.Response, error) 
 		}
 	}
 	response, err := selected.RoundTrip(request)
+	if err != nil && request.Context().Err() == nil {
+		traceFrom(request.Context()).transportFailure(trace, err)
+	}
 	t.recordFailure(request.Context(), proxyKey, trace, err)
 	if response != nil && response.Body != nil {
-		response.Body = &bpsFeedbackBody{ReadCloser: response.Body, failed: func(err error) { t.recordFailure(request.Context(), proxyKey, trace, err) }}
+		response.Body = &bpsFeedbackBody{ReadCloser: response.Body, failed: func(err error) {
+			if request.Context().Err() == nil {
+				traceFrom(request.Context()).transportFailure(trace, err)
+			}
+			t.recordFailure(request.Context(), proxyKey, trace, err)
+		}}
 	}
 	return response, err
 }

@@ -30,6 +30,7 @@ internal sealed class MainForm : Form
     private bool closing;
     private bool mayClose;
     private bool updateInProgress;
+    private bool updateCheckInProgress;
     private string relayUrl = "";
     private string relayKey = "";
 
@@ -52,7 +53,11 @@ internal sealed class MainForm : Form
         copyKey.Click += (_, _) => Copy(relayKey, copyKey);
         copyModel.Click += (_, _) => Copy(Product.Model, copyModel);
         engine.Received += value => OnUi(() => Apply(value));
-        engine.Faulted += message => OnUi(() => { transferLog.Stopped(); active = false; ShowError(message); });
+        engine.Faulted += message => OnUi(() =>
+        {
+            transferLog.Stopped(); active = false;
+            if (!closing && !updateInProgress) ShowError(message);
+        });
         FormClosing += CloseAsync;
         Shown += (_, _) => { InitializeEngine(); _ = CheckForUpdatesAsync(manual: false); };
         UpdateControls();
@@ -181,6 +186,8 @@ internal sealed class MainForm : Form
             SetDetail(result.Success ? $"最近请求成功 · {Product.Model} · 实际推理档位 {result.Effort}" : result.Message ?? "请求未完成，请稍后重试。");
             return;
         }
+        // 引擎的迟到状态不能覆盖下载进度或重新启用启停按钮。
+        if (updateInProgress) return;
         if (value.Message is { } message) SetDetail(message);
         switch (value.Phase)
         {
@@ -201,8 +208,8 @@ internal sealed class MainForm : Form
         power.Running = active;
         powerCaption.Text = active ? "停止中转" : "启动中转";
         power.AccessibleName = powerCaption.Text; tips.SetToolTip(power, powerCaption.Text);
-        power.Enabled = probe.Enabled = !busy && !closing && !preview && engine.Available;
-        updateButton.Enabled = !busy && !closing && !preview && !updateInProgress;
+        power.Enabled = probe.Enabled = !busy && !closing && !preview && !updateInProgress && engine.Available;
+        updateButton.Enabled = !busy && !closing && !preview && !updateInProgress && !updateCheckInProgress;
         if (!busy) probe.Text = "测试连接";
         copyUrl.Enabled = relayUrl.Length > 0 && !closing; copyKey.Enabled = relayKey.Length > 0 && !closing;
         copyModel.Enabled = !closing;
@@ -227,11 +234,13 @@ internal sealed class MainForm : Form
         "将星桥接入 AiMaMi", MessageBoxButtons.OK, MessageBoxIcon.Information);
     private async Task CheckForUpdatesAsync(bool manual)
     {
-        if (preview || updateInProgress) return;
+        if (preview || closing || updateInProgress || updateCheckInProgress) return;
+        updateCheckInProgress = true;
         updateButton.Enabled = false;
         try
         {
             var update = await updateChecker.CheckAsync(Product.Version);
+            if (closing || IsDisposed || Disposing) return;
             if (update is null)
             {
                 if (manual) MessageBox.Show(this, $"当前版本 {Product.Version} 已是最新版本。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -248,30 +257,38 @@ internal sealed class MainForm : Form
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidDataException or FileNotFoundException or UnauthorizedAccessException or IOException or JsonException)
         {
-            if (manual) MessageBox.Show(this, error.Message, "检查更新失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (manual && !closing && !IsDisposed) MessageBox.Show(this, error.Message, "检查更新失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally
         {
-            if (!updateInProgress) UpdateControls();
+            updateCheckInProgress = false;
+            if (!updateInProgress && !closing && !IsDisposed) UpdateControls();
         }
     }
 
     private async Task DownloadAndInstallAsync(AppUpdate update)
     {
+        if (updateInProgress || closing) return;
         updateInProgress = true; busy = true; status.Text = "正在准备更新"; SetDetail($"正在下载并校验版本 {update.Version}，请不要退出应用。"); UpdateControls();
         StagedAppUpdate? staged = null;
         try
         {
             staged = await updateChecker.StageAsync(update);
+            if (closing || IsDisposed || Disposing) { updateChecker.Discard(staged); return; }
+            // 目录权限问题在停止现有引擎之前报告，避免更新失败后中转也不可用。
+            updateChecker.EnsureInstallLocationWritable();
             await engine.DisposeAsync();
+            if (closing || IsDisposed || Disposing) { updateChecker.Discard(staged); return; }
             updateChecker.LaunchUpdater(staged);
             mayClose = true;
             Close();
         }
-        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidDataException or FileNotFoundException or UnauthorizedAccessException or IOException or InvalidOperationException)
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidDataException or FileNotFoundException or UnauthorizedAccessException or IOException or InvalidOperationException or Win32Exception or TimeoutException)
         {
             if (staged is not null) updateChecker.Discard(staged);
-            updateInProgress = false; busy = false; ShowError(error.Message);
+            if (closing || IsDisposed || Disposing) return;
+            updateInProgress = false; busy = false;
+            ShowError(engine.Available ? error.Message : error.Message + " 请重新打开应用恢复中转服务。");
         }
     }
     private void OpenDirectory()
@@ -319,5 +336,10 @@ internal sealed class MainForm : Form
             throw new InvalidOperationException("窗口布局尺寸不符合预期");
         if (transferLog.Parent is null || !transferLog.Visible || transferLog.FindForm() != this || transferLog.Height < 200)
             throw new InvalidOperationException("转发日志没有正确嵌入主窗口");
+        updateInProgress = true; busy = true; status.Text = "正在准备更新";
+        Apply(Protocol.Read("""{"type":"state","phase":"stopped","requests":0,"message":"迟到停止状态"}"""));
+        if (!busy || status.Text != "正在准备更新")
+            throw new InvalidOperationException("引擎状态覆盖了更新进度");
+        updateInProgress = false; busy = false; status.Text = "准备就绪"; UpdateControls();
     }
 }

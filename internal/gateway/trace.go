@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"bpslocal/internal/basispoints"
+	"bpslocal/internal/transportdiag"
 )
 
 type TraceStage string
@@ -124,6 +125,22 @@ func (t *requestTrace) stage(stage TraceStage, message string) {
 	}
 	t.event.Stage = stage
 	t.event.Message = message
+	t.publishLocked()
+}
+
+// 错误原文可能携带代理密码或请求内容，只输出传输层白名单分类和实际协商证据。
+func (t *requestTrace) transportFailure(transport *transportdiag.Trace, err error) {
+	if t == nil {
+		return
+	}
+	snapshot := transport.Snapshot()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished {
+		return
+	}
+	t.failureDetail = fmt.Sprintf("上游传输失败 · %s · 协议 %s · 阶段 %s", transportdiag.Classify(err), snapshot["protocol"], snapshot["phase"])
+	t.event.Message = t.failureDetail
 	t.publishLocked()
 }
 func (t *requestTrace) attempt(repair bool) {

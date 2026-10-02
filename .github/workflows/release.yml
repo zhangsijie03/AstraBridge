@@ -36,6 +36,8 @@ jobs:
           go vet -mod=vendor ./...
           python3 scripts/test_ui_contract.py
           python3 scripts/test_embedded_logs.py
+          python3 scripts/test_macos_update.py
+          python3 scripts/test_macos_termination.py
           bash scripts/build.sh
           python3 scripts/smoke.py
           codesign --verify --deep --strict dist/AstraBridge.app
@@ -76,6 +78,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
           go vet -mod=vendor ./...
           if ($LASTEXITCODE -ne 0) { throw 'Go vet failed' }
+          python scripts/test_windows_update.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows updater tests failed' }
           ./scripts/build-windows.ps1
       - uses: actions/upload-artifact@v4
         if: always()

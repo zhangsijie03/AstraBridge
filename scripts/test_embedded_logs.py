@@ -86,6 +86,19 @@ extension AppDelegate {
         check(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.hasPrefix("中转未运行") }, "Stopping left a stale active summary")
         clear.performClick(nil)
         check(process == nil, "UI checks launched an engine")
+        // 下载期间的迟到引擎事件不能取消忙碌状态或覆盖更新说明。
+        updateInProgress = true
+        setBusy(true)
+        statusLabel.stringValue = "正在准备更新"
+        apply(try JSONDecoder().decode(EngineEvent.self, from: Data(#"{"type":"state","phase":"stopped","requests":0,"message":"已停止"}"#.utf8)))
+        check(busy && statusLabel.stringValue == "正在准备更新", "Engine state overwrote update progress")
+        check(!startButton.isEnabled && !testButton.isEnabled && !updateButton.isEnabled, "Updating enabled a conflicting action")
+        updateInProgress = false
+        closing = true
+        apply(try JSONDecoder().decode(EngineEvent.self, from: Data(#"{"type":"state","phase":"error","requests":0,"message":"迟到错误"}"#.utf8)))
+        check(closing, "Late engine error cancelled application termination")
+        closing = false
+        setBusy(false)
         print("PASS: compact layout, resize, request aggregation, outcome icons, HTTP 200 error, tooltips, history cap, selection, follow, clear and stop; no engine or upstream requests")
     }
 }

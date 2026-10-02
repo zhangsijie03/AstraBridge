@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,4 +63,28 @@ func TestServeHTTPBacksOffAfterUpstreamConnectionFailure(t *testing.T) {
 	require.Equal(t, "2", second.Header().Get("Retry-After"))
 	require.Contains(t, second.Body.String(), codeBackoff)
 	require.Equal(t, 1, calls)
+}
+
+func TestBackoffSurvivesHeadersUntilCompletedResponse(t *testing.T) {
+	complete := false
+	g := gateway(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if complete {
+			fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n")
+		} else {
+			// 每次都建立连接并返回 200，但在产生完整响应之前断流。
+			fmt.Fprint(w, ": keepalive\n\n")
+		}
+	})
+	now := time.Now()
+	g.upstreamBackoff.now = func() time.Time { return now }
+	for _, delay := range []time.Duration{2, 4, 8, 16, 30} {
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, request(simpleRequest))
+		require.Equal(t, delay*time.Second, g.upstreamBackoff.remaining())
+		now = now.Add(delay * time.Second)
+	}
+	complete = true
+	g.ServeHTTP(httptest.NewRecorder(), request(simpleRequest))
+	require.Zero(t, g.upstreamBackoff.failures)
 }

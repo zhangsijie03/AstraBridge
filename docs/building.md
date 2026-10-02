@@ -12,6 +12,8 @@ go test -mod=vendor -race -count=1 ./...
 go vet -mod=vendor ./...
 python3 scripts/test_ui_contract.py
 python3 scripts/test_embedded_logs.py
+python3 scripts/test_macos_update.py
+python3 scripts/test_macos_termination.py
 bash scripts/build.sh
 python3 scripts/smoke.py
 codesign --verify --deep --strict dist/AstraBridge.app
@@ -29,6 +31,7 @@ ditto -c -k --sequesterRsrc --keepParent dist/AstraBridge.app "dist/AstraBridge-
 python scripts/check_upstream.py
 go test -mod=vendor -race -count=1 ./...
 go vet -mod=vendor ./...
+python scripts/test_windows_update.py
 pwsh -File scripts/build-windows.ps1
 ```
 

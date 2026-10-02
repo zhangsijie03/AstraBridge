@@ -67,6 +67,7 @@ final class UpdateChecker {
     private static let repository = "zhangsijie03/AstraBridge"
     private static let apiURL = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
     private let session: URLSession
+    private let stagingQueue = DispatchQueue(label: "AstraBridge.update-staging", qos: .userInitiated)
 
     init(session: URLSession? = nil) {
         if let session = session {
@@ -134,15 +135,18 @@ final class UpdateChecker {
                     switch checksumResult {
                     case .failure(let error): self.cleanup(staging); self.finish(completion, .failure(error))
                     case .success:
-                        do {
-                            try self.verify(archive: archive, checksumFile: checksum, expectedName: "AstraBridge-\(update.version)-macOS-arm64.zip")
-                            let extracted = staging.appendingPathComponent("extracted", isDirectory: true)
-                            try self.extract(archive, to: extracted)
-                            let appURL = extracted.appendingPathComponent("AstraBridge.app", isDirectory: true)
-                            guard FileManager.default.fileExists(atPath: appURL.path) else { throw UpdateError.extractionFailed("未找到 AstraBridge.app。") }
-                            self.finish(completion, .success(StagedAppUpdate(version: update.version, appURL: appURL, stagingDirectory: staging)))
-                        } catch {
-                            self.cleanup(staging); self.finish(completion, .failure(error))
+                        // 校验和解压可能耗时，不能阻塞主线程的动画、取消及退出。
+                        self.stagingQueue.async {
+                            do {
+                                try self.verify(archive: archive, checksumFile: checksum, expectedName: "AstraBridge-\(update.version)-macOS-arm64.zip")
+                                let extracted = staging.appendingPathComponent("extracted", isDirectory: true)
+                                try self.extract(archive, to: extracted)
+                                let appURL = extracted.appendingPathComponent("AstraBridge.app", isDirectory: true)
+                                guard FileManager.default.fileExists(atPath: appURL.path) else { throw UpdateError.extractionFailed("未找到 AstraBridge.app。") }
+                                self.finish(completion, .success(StagedAppUpdate(version: update.version, appURL: appURL, stagingDirectory: staging)))
+                            } catch {
+                                self.cleanup(staging); self.finish(completion, .failure(error))
+                            }
                         }
                     }
                 }
@@ -150,7 +154,14 @@ final class UpdateChecker {
         }
     }
 
-    func launchUpdater(staged: StagedAppUpdate, replacing target: URL, waitingFor pid: Int32) throws {
+    @discardableResult
+    func launchUpdater(staged: StagedAppUpdate, replacing target: URL, waitingFor pid: Int32) throws -> Process {
+        // 关闭旧应用之前检查安装条件；权限不足时保留当前可运行版本。
+        guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path),
+              FileManager.default.isWritableFile(atPath: target.path) else { throw UpdateError.installLocationNotWritable }
+        guard FileManager.default.isExecutableFile(atPath: staged.appURL.appendingPathComponent("Contents/MacOS/AstraBridge").path) else {
+            throw UpdateError.extractionFailed("更新包缺少可执行程序。")
+        }
         let script = staged.stagingDirectory.appendingPathComponent("apply-update.sh")
         let contents = """
         #!/bin/sh
@@ -163,46 +174,49 @@ final class UpdateChecker {
         exec >>"$log" 2>&1
         echo "AstraBridge updater started at $(date)"
         echo "target=$target source=$source pid=$pid"
+        token="${cleanup##*/}"
+        temporary="$target.update-$token"
+        backup="$target.previous-$token"
+        moved=0
+        installed=0
+        rollback() {
+          status=$?
+          trap - EXIT
+          if [ "$status" -ne 0 ]; then
+            echo "update failed: status=$status"
+            if [ "$moved" -eq 1 ]; then
+              if [ "$installed" -eq 1 ]; then rm -rf "$target"; fi
+              mv "$backup" "$target" || { echo "rollback failed; old app retained at $backup"; exit "$status"; }
+              echo "previous version restored"
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then open "$target" || true; fi
+          fi
+          rm -rf "$temporary"
+          exit "$status"
+        }
+        trap rollback EXIT
         tries=0
         while kill -0 "$pid" 2>/dev/null; do
           tries=$((tries + 1))
           if [ "$tries" -gt 120 ]; then
-            echo "旧应用未在 30 秒内退出，发送 TERM"
-            kill -TERM "$pid" 2>/dev/null || true
-            force_tries=0
-            while kill -0 "$pid" 2>/dev/null && [ "$force_tries" -lt 8 ]; do
-              force_tries=$((force_tries + 1))
-              sleep 0.25
-            done
-            if kill -0 "$pid" 2>/dev/null; then
-              echo "旧应用仍未退出，发送 KILL"
-              kill -KILL "$pid" 2>/dev/null || true
-              sleep 0.5
-            fi
-            break
+            echo "旧应用未在 30 秒内退出，保留旧版并停止更新"
+            exit 10
           fi
           sleep 0.25
         done
         sleep 0.5
-        temporary="$target.update"
-        if ditto "$source" "$temporary" 2>/dev/null; then
-          rm -rf "$target"
-          mv "$temporary" "$target"
-        else
-          /usr/bin/osascript - "$source" "$target" <<'APPLESCRIPT'
-        on run argv
-          set sourcePath to item 1 of argv
-          set targetPath to item 2 of argv
-          do shell script "/bin/rm -rf " & quoted form of targetPath & " && /usr/bin/ditto " & quoted form of sourcePath & " " & quoted form of targetPath with administrator privileges
-        end run
-        APPLESCRIPT
-        fi
-        if [ ! -d "$target" ]; then exit 11; fi
+        # 完整复制成功后再移动旧版；任何替换/重启失败都可恢复旧版。
+        ditto "$source" "$temporary"
+        test -x "$temporary/Contents/MacOS/AstraBridge"
+        mv "$target" "$backup"
+        moved=1
+        mv "$temporary" "$target"
+        installed=1
         echo "replacement complete"
         open "$target"
         echo "relaunch requested"
-        rm -rf "$cleanup"
-        rm -f "$0"
+        trap - EXIT
+        rm -rf "$backup" "$cleanup"
         """
         do {
             try contents.write(to: script, atomically: true, encoding: .utf8)
@@ -212,7 +226,11 @@ final class UpdateChecker {
             process.arguments = [script.path, target.path, staged.appURL.path, String(pid), staged.stagingDirectory.path]
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
+            var environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+            process.environment = environment
             try process.run()
+            return process
         } catch { throw UpdateError.updaterLaunchFailed(error.localizedDescription) }
     }
 

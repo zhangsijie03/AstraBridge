@@ -131,7 +131,11 @@ internal static class SmokeTest
             EngineEvent ready = await idle.Task.WaitAsync(TimeSpan.FromSeconds(15));
             if (ready.Model != Product.Model || ready.ApiKey is not { Length: > 0 } || ready.BaseUrl is null || ready.Requests != 0)
                 throw new InvalidOperationException("引擎初始连接契约不完整");
-            await engine.DisposeAsync();
+            Task shutdown = engine.DisposeAsync().AsTask();
+            Task concurrentShutdown = engine.DisposeAsync().AsTask();
+            if (!shutdown.IsCompleted && concurrentShutdown.IsCompleted)
+                throw new InvalidOperationException("并发关闭在后台进程结束之前返回");
+            await Task.WhenAll(shutdown, concurrentShutdown);
             if (engine.Available) throw new InvalidOperationException("关闭输入后引擎仍在运行");
         }
         finally

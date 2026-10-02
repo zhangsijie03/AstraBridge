@@ -81,6 +81,15 @@ func TestCitationRewriterHandlesSplitDeltas(t *testing.T) {
 	_ = citation
 }
 
+func TestCitationKeepsEarlierOrdinaryBrackets(t *testing.T) {
+	_, citation := localCitationForTest(t)
+	for _, prefix := range []string{"【注意】请阅读：", "【普通文字未闭合，请阅读："} {
+		r := newCitationRewriter(newLocalFileBroker(), "http://127.0.0.1:17861")
+		input := prefix + citation + "。"
+		require.Equal(t, r.rewrite(input), r.feed("0:0", input), "streamed deltas must match final text")
+	}
+}
+
 func TestRewriteSSEFrameKeepsProtocolAndRewritesDelta(t *testing.T) {
 	_, citation := localCitationForTest(t)
 	r := newCitationRewriter(newLocalFileBroker(), "http://127.0.0.1:17861")

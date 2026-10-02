@@ -9,6 +9,7 @@ internal sealed class EngineClient : IAsyncDisposable
     private readonly SemaphoreSlim inputGate = new(1, 1);
     private Process? process;
     private Task? monitor;
+    private Task? disposal;
     private volatile bool closing;
     private volatile bool failed;
     public event Action<EngineEvent>? Received;
@@ -95,7 +96,18 @@ internal sealed class EngineClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (closing) return;
+        // 更新与窗口关闭可能同时请求退出；所有调用者都必须等到同一次清理完成。
+        var pending = disposal ??= DisposeCoreAsync();
+        try { await pending; }
+        catch
+        {
+            if (ReferenceEquals(disposal, pending)) disposal = null;
+            throw;
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
         closing = true;
         if (process is not { } child) return;
         try

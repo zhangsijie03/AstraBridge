@@ -82,6 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let dataDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(Product.stateDirectory)
     private let updateChecker = UpdateChecker()
     private var updateInProgress = false
+    private var updateCheckInProgress = false
+    private var updaterProcess: Process?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildWindow()
@@ -329,13 +331,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self.terminationFallback?.cancel()
                 self.terminationFallback = nil
                 self.process = nil
-                if self.closing { NSApp.reply(toApplicationShouldTerminate: true) }
+                if self.closing { NSApp.terminate(nil) }
                 else {
                     let wasActive = self.active
                     self.active = false
                     self.transferLog.stopped()
-                    self.setBusy(false)
-                    if wasActive { self.showError("后台进程已停止。请重新打开工具恢复中转服务。") }
+                    self.setBusy(self.updateInProgress)
+                    if wasActive && !self.updateInProgress { self.showError("后台进程已停止。请重新打开工具恢复中转服务。") }
                 }
             }
         }
@@ -351,6 +353,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     private func apply(_ event: EngineEvent) {
+        // 退出由进程终止回调完成；迟到的状态不得撤销关闭或覆盖更新提示。
+        guard !closing else { return }
         if let trace = event.trace {
             transferLog.append(trace)
             if !active { transferLog.stopped() }
@@ -389,6 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         guard let phase = event.phase else { return }
+        guard !updateInProgress else { return }
         if let message = event.message { detailLabel.stringValue = message }
         switch phase {
         case .idle:
@@ -409,7 +414,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             active = false; statusLabel.stringValue = "中转已停止"
             updateStatusIcon("pause.circle.fill", color: .secondaryLabelColor); setBusy(false)
         case .error:
-            if closing { closing = false; NSApp.reply(toApplicationShouldTerminate: false) }
             showError(event.message ?? "操作失败")
         }
     }
@@ -426,9 +430,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         startButton.setAccessibilityLabel(startButton.title)
         startButton.toolTip = startButton.title
         startButton.bezelColor = active ? nil : InterfaceStyle.accent
-        startButton.isEnabled = !value && available && !preview
-        testButton.isEnabled = !value && available && !preview
-        updateButton?.isEnabled = !value && !updateInProgress && !preview
+        startButton.isEnabled = !value && available && !preview && !closing && !updateInProgress
+        testButton.isEnabled = !value && available && !preview && !closing && !updateInProgress
+        updateButton?.isEnabled = !value && !updateInProgress && !updateCheckInProgress && !closing && !preview
         if !value { testButton.title = "测试连接" }
         copyURLButton.isEnabled = !relayBaseURL.isEmpty
         copyKeyButton.isEnabled = !relayAPIKey.isEmpty
@@ -502,11 +506,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func copyModel() { copy(fixedModelID, using: copyModelButton) }
     @objc private func checkUpdates() { checkForUpdates(manual: true) }
     private func checkForUpdates(manual: Bool) {
-        guard !preview, !updateInProgress else { return }
+        guard !preview, !closing, !updateInProgress, !updateCheckInProgress else { return }
+        updateCheckInProgress = true
         updateButton?.isEnabled = false
         updateChecker.check(currentVersion: Product.version) { [weak self] result in
             guard let self = self else { return }
-            self.updateButton?.isEnabled = !self.updateInProgress
+            self.updateCheckInProgress = false
+            self.setBusy(self.busy)
+            guard !self.closing, !self.updateInProgress else { return }
             switch result {
             case .success(nil):
                 if manual {
@@ -535,7 +542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return String(trimmed.prefix(900)) + "…"
     }
     private func downloadAndInstall(_ update: AppUpdate) {
-        guard !updateInProgress else { return }
+        guard !closing, !updateInProgress else { return }
         updateInProgress = true
         setBusy(true)
         statusLabel.stringValue = "正在准备更新"
@@ -546,8 +553,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .failure(let error):
                 self.updateInProgress = false; self.showError(error.localizedDescription)
             case .success(let staged):
+                guard !self.closing else { self.updateChecker.discard(staged); return }
                 do {
-                    try self.updateChecker.launchUpdater(staged: staged, replacing: Bundle.main.bundleURL, waitingFor: ProcessInfo.processInfo.processIdentifier)
+                    let updater = try self.updateChecker.launchUpdater(staged: staged, replacing: Bundle.main.bundleURL, waitingFor: ProcessInfo.processInfo.processIdentifier)
+                    self.updaterProcess = updater
+                    updater.terminationHandler = { [weak self] task in
+                        guard task.terminationStatus != 0 else { return }
+                        DispatchQueue.main.async {
+                            guard let self = self else { return }
+                            self.closing = false
+                            self.terminationFallback?.cancel()
+                            self.updateInProgress = false
+                            self.updaterProcess = nil
+                            self.showError("更新未完成，旧版本已保留。日志：\(staged.stagingDirectory.appendingPathComponent("update.log").path)")
+                        }
+                    }
                     self.statusLabel.stringValue = "更新已准备"
                     self.detailLabel.stringValue = "应用将关闭并自动重启到版本 \(staged.version)。"
                     NSApp.terminate(nil)
@@ -581,10 +601,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool { NSApp.terminate(nil); return false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard process?.isRunning == true else { return .terminateNow }
-        if closing { return .terminateLater }
+        if closing { return .terminateCancel }
         closing = true
         requestEngineQuit()
-        return .terminateLater
+        // terminateLater 的 AppKit 等待循环会阻塞这里依赖的主队列回调和超时任务。
+        // 先取消本次系统退出，待子进程清理完成后再次 terminate，届时直接 terminateNow。
+        return .terminateCancel
     }
 }
 

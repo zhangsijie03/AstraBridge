@@ -160,8 +160,12 @@ func (r *citationRewriter) feed(key, chunk string) string {
 		candidate := value[start:]
 		match := localFileCitationPattern.FindStringSubmatch(candidate)
 		if match != nil {
+			// 匹配可能从后面的文件引用开始；先保留普通【提示】文本，
+			// 再按真实起点消费字节，防止切断 UTF-8 或吞掉前文。
+			matchStart := strings.Index(candidate, match[0])
+			out.WriteString(candidate[:matchStart])
 			out.WriteString(r.render(match[1], match[2], match[3]))
-			value = candidate[len(match[0]):]
+			value = candidate[matchStart+len(match[0]):]
 			continue
 		}
 		if strings.IndexRune(candidate, '】') < 0 || citationMayContinue(candidate) {

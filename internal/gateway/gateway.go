@@ -314,7 +314,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem(w, result.Status, result.Code, result.Message)
 		return
 	}
-	g.upstreamBackoff.success()
+	// 收到 200 响应头不代表流已完成；连续断流仍需累计退避。
+	// 仅在 forwardStream 确认 response.completed 后重置。
 	captureBPSHeaders(ctx, resp)
 	resp.Body = traceBody(ctx, resp.Body)
 	defer func() {
