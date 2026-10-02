@@ -1,14 +1,14 @@
 {
   "repository": "https://github.com/ranxi2001/sub2api",
-  "tag": "v2.9.4",
-  "commit": "7dd10bfe4b635f226f0ddfa52cc65797697272d8",
+  "tag": "production",
+  "commit": "bf9405e4ab58c1be4fc8ec2101371753a016908e",
   "source_path": "backend/internal/service/basispoints",
   "sha256": {
     "NOTICE.md": "25f9f404a89bc3d2801b9380a92db3c05560337714e66e03ecdb939029c19dc1",
     "README.md": "ea79a02e820226024daf4293b894ce927dbcb017467915244895834c0dc844dd",
     "agent_message_test.go": "aa3c5d0d366bb1bd22d85bb93325337ed6f067d04352a474ac378b9aaaeffa0b",
-    "attachments.go": "8eb7c4693cb416768b11915f3855b080b8126212e7a757502e6449e7573d2758",
-    "attachments_test.go": "487dfb69eeb6fbc5f1ecca947bad8d017c020849f2a38f2552c41f71166b03b7",
+    "attachments.go": "b89473f6fb0fbc73633a1a9fb81680aaa026a910d1f8d492e273d10ae96be4c3",
+    "attachments_test.go": "62d7715446d119b89b52b463b46ccfe0189b45e2ae3bcf81a19ca80eaba61655",
     "basispoints_test.go": "441cbf7dcf48dcf7e66826978c1f9ff3e9650283270a7f9dbece9e4c50c5841c",
     "catalog.go": "0489b5102855b4ceb0ac097575ba1c77c7a8fdd2db231301e3e73567fee6b76c",
     "catalog_cache.go": "9afe70da91f8b2010378a7bc7094b3080e4eea070d0bc431a7e0036d48bd4c56",
@@ -31,17 +31,17 @@
     "function_code_transport.go": "8da57e6086619825bcc177cbd11129f68001bf009f1db77f101c7bf67c7f749a",
     "function_code_transport_test.go": "2ae12846716b3de38bf3a1b37666370fac602a525538c3a44fb852ae5d66c32b",
     "history_collision_test.go": "65ef9109ed09033fb8a80ff0a0a03056b95637d6ac4392fd26eaf1ea7b4e17d2",
-    "history_message_images_test.go": "7fcb21d5937e282de264e03f85b44177d77f88dabf5d69c6fdb15ab462334da0",
-    "history_messages.go": "83dc3b49810d8003103b32217470cdeea266dda84b3c745d0da5b92b4e0912fb",
+    "history_message_id_test.go": "f212b16366116830f42e2b772593a339ae9d09993a94702faf5a2557b7e08169",
+    "history_message_images_test.go": "e37554f915f0db37fcc9c60a99ff176957beeeb17adaf53ee7928ac806504547",
+    "history_messages.go": "0ef256115fcf17842676d103f4f26516353f29f5003345c534996021f68d09ac",
     "history_messages_test.go": "52fb16836681e5c618f4f422e5d59f3c12a14e193310d10c39fec7b7465de9ac",
     "history_recovery_test.go": "c91b8053acaeb70642db763bafa1db0b8af005efc72890ad0abc124b43fbf3a6",
-    "image_attachment_support.go": "5ad4fbc743dd39d453b7e325e923f952378afcc10fcc49f0573536d42117b93f",
     "image_capacity.go": "4a6e2338e4eb0fad01990408d6447b306194cc838bea2a370370ca819398cc02",
     "image_file_reference_test.go": "55d348ba41e72f5c53f4d93816166a1c19b30c6342b72f852974506aadda3d55",
     "image_policy.go": "7e170651098b414393e977d1ce819b3293fd89f9ec02dd74a04d205d039671aa",
     "image_policy_stream.go": "ff80a55815ee94c6bacdeb2e95905e896beaa6a4e612fb9ecd6e13864dc5280d",
     "image_policy_test.go": "2bd34cb0ee03f88c5fab2eb08cdc8a0980079cbfef49fa6bab05392b8f27b565",
-    "images.go": "4bb400493a3aeeacdcf3d2c6cc099b89e024e4e7a0a44b4236a7b70bba1b8b8e",
+    "images.go": "37e1ee5e095a32337c46388fadbf5866a77df5c65730a0ba299fee08ea4e9e74",
     "images_test.go": "1711d83a9f303f922fed7a47ee03a5d92631109528656b7d8d3381e431dceee8",
     "invocation_recovery_test.go": "454a045a18f6aa020a9aec22a574d25d508da17e4b9cc12cf0bc2c02235143b1",
     "plan.go": "2ee56aa49c0484f3d9c050b5b4affe5994301a6872ad0a2db93b0fb7958814b7",
@@ -49,7 +49,7 @@
     "protocol_completion_test.go": "d53eea0560508c9f2007ee2b53727b56ad5adf65b7b248ef0e649db92e33f405",
     "raw_custom_call_test.go": "85d765c7428ee7b3327586fed4d4dc7d3cd2d587718f529fd44b12453e1ed934",
     "replay_cache_test.go": "788686a7aaafa537fc752aeae01d3622bb45c839d657281526fcea8118a31af3",
-    "request.go": "74321a701b5a4936a9b700f954c73172bb6a572f4583231806bead644c26c5cb",
+    "request.go": "2f633a42d1abd1b067bd93aa02737276131a0e69787c926961e9fff5f0f271d3",
     "request_compatibility_test.go": "510318c241119783ca76861143a9ace97216fc4d27deafa969323dbae10628ea",
     "stream.go": "21cfb72b936198ca2ca099c2101c671bcf76ab302b12a0322c3931229415c0bd",
     "stream_repair_boundary_test.go": "52c6d96e40670ad1e3583fb0164ded7630303ae6ec4223413595cf406e851029",
@@ -57,6 +57,8 @@
     "structured_output_test.go": "51217ff7fe6873044ecf9426b172e06d3d064e4c18a6e448d2c5e7611b4407ee",
     "terminal_tools_test.go": "8f6cd3119be1a0e851136b51d0576fc5661211eb95c8884318710217abe76c77",
     "tool_duplicates_test.go": "0127c77ee1dbfdee8cfc440410c76d22670941c2c38a021bae22d511a2c3e846",
+    "tool_examples.go": "590cd07ba81b1b9dabe97687d72174d47f2f12cb73511dcb54380644ea1f4fba",
+    "tool_examples_test.go": "bab559153e3b86f4b15c77a91f38a34e476c312829036139632182e72bf7319b",
     "tool_images.go": "976276be49872730a7d66c088bab1c4843dc78ede89631c0181bf524764f3367",
     "tool_images_test.go": "a9f1d520c1900559cfe2a62d3990af8d12b8132548e19ccf823596623e201958",
     "tool_repair.go": "36582de58a0d63eba67fdc4c42e0537577e948a862587772ebbaf9f33a0e1828",
@@ -93,7 +95,7 @@
     "tools.go": "dfac7539c613040e19cdd5a95d3517f5bf4acee00d6cbeee7939743b503cd6f5"
   },
   "native_images": {
-    "commit": "7dd10bfe4b635f226f0ddfa52cc65797697272d8",
+    "commit": "bf9405e4ab58c1be4fc8ec2101371753a016908e",
     "source_path": "backend/internal/service/basispoints",
     "unmodified_files": [
       "attachments.go",
@@ -135,6 +137,7 @@
     "function_code_transport.go",
     "function_code_transport_test.go",
     "history_collision_test.go",
+    "history_message_id_test.go",
     "history_message_images_test.go",
     "history_messages.go",
     "history_messages_test.go",
@@ -158,6 +161,8 @@
     "structured_output_test.go",
     "terminal_tools_test.go",
     "tool_duplicates_test.go",
+    "tool_examples.go",
+    "tool_examples_test.go",
     "tool_images.go",
     "tool_images_test.go",
     "tool_repair.go",
@@ -179,7 +184,7 @@
   ],
   "host_adapter_source": "backend/internal/service/openai_excel_bps.go",
   "native_transport": {
-    "commit": "7dd10bfe4b635f226f0ddfa52cc65797697272d8",
+    "commit": "bf9405e4ab58c1be4fc8ec2101371753a016908e",
     "source_path": "backend/internal/util/transportdiag",
     "local_path": "internal/transportdiag",
     "sha256": {
@@ -209,22 +214,10 @@
       "upstream_sha256": "52c6d96e40670ad1e3583fb0164ded7630303ae6ec4223413595cf406e851029",
       "local_sha256": "ba0da6bd4d2f079a3eb76b7bf212e405418362a3e66b3fd2f63774d185014e3d",
       "reason": "AstraBridge wire compatibility repair for long-running Responses clients"
-    },
-    "history_messages.go": {
-      "upstream_sha256": "83dc3b49810d8003103b32217470cdeea266dda84b3c745d0da5b92b4e0912fb",
-      "local_sha256": "5b0afaa8809e7219263dcf75ac0537724dc52d0c2cf7006edaf7fd1369f74cce",
-      "reason": "Ported sub2api post-v2.9.4 compatibility-ID fix so client-generated message IDs are not sent to BPS."
-    },
-    "request.go": {
-      "upstream_sha256": "74321a701b5a4936a9b700f954c73172bb6a572f4583231806bead644c26c5cb",
-      "local_sha256": "2f633a42d1abd1b067bd93aa02737276131a0e69787c926961e9fff5f0f271d3",
-      "reason": "Ported sub2api post-v2.9.4 catalog-driven tool examples so the model sees only valid bridge transports."
     }
   },
   "local_files": {
-    "output_wire_test.go": "a5e7523dfb622838ab0297cf53f0a8a4d897409339ec882df96831fa114b42eb",
-    "history_message_id_test.go": "f212b16366116830f42e2b772593a339ae9d09993a94702faf5a2557b7e08169",
-    "tool_examples.go": "846b6bec713bcaefab470a25bc9e9e81cb7c1c91cfb7930e33a2400d1922c848",
-    "tool_examples_test.go": "bab559153e3b86f4b15c77a91f38a34e476c312829036139632182e72bf7319b"
+    "image_attachment_support.go": "5ad4fbc743dd39d453b7e325e923f952378afcc10fcc49f0573536d42117b93f",
+    "output_wire_test.go": "a5e7523dfb622838ab0297cf53f0a8a4d897409339ec882df96831fa114b42eb"
   }
 }

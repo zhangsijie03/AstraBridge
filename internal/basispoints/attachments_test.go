@@ -92,7 +92,6 @@ func TestNativeImagesValidateAllBeforeUpload(t *testing.T) {
 		"bad second image": {url, "data:image/png;base64,PRIVATE_INVALID"},
 		"mime mismatch":    {strings.Replace(url, "image/png", "image/jpeg", 1)},
 		"bad image bytes":  {"data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("not an image"))},
-		"too many":         strings.Fields(strings.Repeat(url+" ", 21)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := PrepareNativeImages(nativeTestRequest(t, urls...))
@@ -103,8 +102,10 @@ func TestNativeImagesValidateAllBeforeUpload(t *testing.T) {
 	// 20 occurrences remain legal; invalid detail and mixed references fail locally.
 	_, err := PrepareNativeImages(nativeTestRequest(t, strings.Fields(strings.Repeat(url+" ", 20))...))
 	require.NoError(t, err)
+	_, err = PrepareNativeImages(nativeTestRequest(t, strings.Fields(strings.Repeat(url+" ", 21))...))
+	require.EqualError(t, err, "local gateway is configured for at most 20 inline images per request")
 	_, err = PrepareNativeImagesWithLimit(nativeTestRequest(t, url, url), 1)
-	require.ErrorContains(t, err, "at most 1")
+	require.EqualError(t, err, "local gateway is configured for at most 1 inline images per request")
 	raw := nativeTestRequest(t, url)
 	_, err = PrepareNativeImages(bytes.ReplaceAll(raw, []byte("original"), []byte("invalid")))
 	require.Error(t, err)
@@ -314,5 +315,5 @@ func TestNativeToolImageValidationAndScope(t *testing.T) {
 	mixed, err := json.Marshal(source)
 	require.NoError(t, err)
 	_, err = PrepareNativeImagesWithLimit(mixed, 1)
-	require.ErrorContains(t, err, "at most 1")
+	require.EqualError(t, err, "local gateway is configured for at most 1 inline images per request")
 }

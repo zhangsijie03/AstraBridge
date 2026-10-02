@@ -7,7 +7,7 @@ import (
 )
 
 // Build examples from this request's accepted catalog, not fixed tool identities.
-// The model must see the transport shape that this bridge can actually replay.
+// Inspired by cpa-plugin-oai-basispoints 280e28b; use this bridge's own transports.
 func (b *Bridge) toolExamples() string {
 	names := make([]string, 0, len(b.tools))
 	for name := range b.tools {
@@ -34,7 +34,8 @@ func (b *Bridge) toolExamples() string {
 		}
 		outer := object{"summary": "Call client tool " + name, "extended_summary": "Relay one declared client tool", "destructive": false, "references": []any{}}
 		if info.Kind == "custom" {
-			// Do not teach an unchecked custom grammar to the upstream model.
+			// We do not implement arbitrary client grammars. Avoid teaching a payload
+			// when its declared grammar has not been checked by the bridge.
 			if format := info.Catalog["format"]; format != nil {
 				spec, ok := format.(object)
 				if !ok || text(spec["type"]) != "text" {

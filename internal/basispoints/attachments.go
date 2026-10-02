@@ -110,7 +110,7 @@ func PrepareNativeImagesWithLimit(raw []byte, maxImages int) (*NativeImages, err
 				return nil, fmt.Errorf("basispoints input_image requires exactly one image reference")
 			}
 			if plan.inlineCount >= maxImages {
-				return nil, fmt.Errorf("basispoints accepts at most %d inline images per request", maxImages)
+				return nil, fmt.Errorf("local gateway is configured for at most %d inline images per request", maxImages)
 			}
 			plan.inlineCount++
 			// Apply the same administrator-configured image size and count

@@ -70,9 +70,11 @@ func normalizeHistoryMessage(item object, index int) (object, error) {
 	return out, nil
 }
 
-// The client compatibility converter emits local item_<12-byte hex> IDs.
-// BPS does not persist those IDs, so omit only that recognized shape while
-// retaining native IDs and every tool-call identity.
+// The compatibility response converter emits local item_<12-byte hex> IDs.
+// They do not identify stored BPS messages. Full inline message content does
+// not need this optional ID, and BPS rejects the local prefix. Omit only that
+// recognized compatibility shape; retain native/unknown IDs and all tool call
+// identities. item_reference and previous_response_id remain unsupported.
 func omitCompatibilityMessageID(item object) object {
 	id := text(item["id"])
 	if len(id) != len("item_")+24 || !strings.HasPrefix(id, "item_") {
