@@ -15,6 +15,15 @@ private enum Product {
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     // 沿用旧数据位置与 Bundle ID，升级时保留地址、Key、偏好及单实例锁。
     static let stateDirectory = "Library/Application Support/BPS Local"
+    private struct Source: Decodable { let tag: String; let commit: String }
+    private static let source: Source? = {
+        guard let url = Bundle.main.url(forResource: "upstream-manifest", withExtension: "json"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(Source.self, from: data)
+    }()
+    // 与发行包内已校验的清单共用来源，避免协议升级后界面仍显示旧提交。
+    static let sourceDescription = source.map { "Sub2API \($0.tag)，固定提交 \($0.commit.prefix(7))" } ?? "Sub2API（来源清单不可读取）"
+    static let sourceURL = source.flatMap { URL(string: "https://github.com/ranxi2001/sub2api/blob/\($0.commit)/docs/excel-bps.md") }
 }
 
 private struct GatewayResult: Decodable {
@@ -589,11 +598,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openAbout() {
         let alert = NSAlert()
         alert.messageText = "\(Product.name) · \(Product.chineseName)"
-        alert.informativeText = "版本 \(Product.version)\nAiMaMi 的本地 BPS 连接工具。\n\n文本、工具与图片协议采用 Sub2API v2.9.3，固定提交 faf58e4。原生源码逐文件校验。\n原名 BPS Local；升级继续沿用已有连接配置。"
+        alert.informativeText = "版本 \(Product.version)\nAiMaMi 的本地 BPS 连接工具。\n\n文本、工具与图片协议采用 \(Product.sourceDescription)。原生源码逐文件校验。\n原名 BPS Local；升级继续沿用已有连接配置。"
         alert.addButton(withTitle: "完成")
         alert.beginSheetModal(for: window)
     }
-    @objc private func openSource() { NSWorkspace.shared.open(URL(string: "https://github.com/ranxi2001/sub2api/blob/v2.9.3/docs/excel-bps.md")!) }
+    @objc private func openSource() {
+        guard let url = Product.sourceURL else { showError("无法读取协议来源清单，请重新安装完整发行包。"); return }
+        NSWorkspace.shared.open(url)
+    }
     @objc private func openBackup() {
         if FileManager.default.fileExists(atPath: dataDirectory.path) { NSWorkspace.shared.open(dataDirectory) }
         else if let readme = Bundle.main.url(forResource: "README", withExtension: "md") { NSWorkspace.shared.open(readme) }

@@ -13,6 +13,7 @@ go vet -mod=vendor ./...
 python3 scripts/test_ui_contract.py
 python3 scripts/test_embedded_logs.py
 python3 scripts/test_macos_update.py
+python3 scripts/test_update_configuration.py
 python3 scripts/test_macos_termination.py
 bash scripts/build.sh
 python3 scripts/smoke.py
@@ -38,6 +39,8 @@ pwsh -File scripts/build-windows.ps1
 Go race detector 需要受支持的 C 编译器；GitHub Windows runner 已提供。如本地没有，可先执行 `go test -mod=vendor -count=1 ./...`，以 CI race 结果作补充。
 
 Windows 原生界面使用 WinForms，通过 UTF-8 与 Go JSON 行协议通信。环境变量 `HTTPS_PROXY` / `HTTP_PROXY` 由子进程继承。Windows 版不自动解析系统代理或 PAC；需要代理时请在启动应用前设置 `HTTPS_PROXY`。
+
+macOS 更新器按 `HTTPS_PROXY`、`https_proxy`、`HTTP_PROXY`、`http_proxy` 顺序选取非空配置，支持无认证的 HTTP（默认端口 80）和 SOCKS5 / SOCKS5H（默认端口 1080）。显式端口如 `http://127.0.0.1:6789` 优先；不支持的代理协议或含认证的地址会明确报错。未设置环境变量时沿用 URLSession 的系统代理行为。`test_update_configuration.py` 使用临时本地代理核验实际 HTTP CONNECT / SOCKS5 握手，不连接真实上游。
 
 Windows UI 的 `--preview` 使用合成数据。`--smoke-test --smoke-report <文件>` 在独立临时目录启动引擎，验证初始停止状态、契约和退出，不读取真实账号或发送上游请求。
 

@@ -37,6 +37,7 @@ jobs:
           python3 scripts/test_ui_contract.py
           python3 scripts/test_embedded_logs.py
           python3 scripts/test_macos_update.py
+          python3 scripts/test_update_configuration.py
           python3 scripts/test_macos_termination.py
           bash scripts/build.sh
           python3 scripts/smoke.py

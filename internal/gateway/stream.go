@@ -140,7 +140,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 			setStreamFailure(result, r.Context(), ctx, ctx.Err())
 			if !result.Cancelled {
 				if stream {
-					_ = writeFrame(w, failedFrame(result.Code, result.Message))
+					_ = writeFrame(w, rewriteSSEFrame(failedFrame(result.Code, result.Message), citationRewriter))
 				} else {
 					problem(w, 504, result.Code, result.Message)
 				}
@@ -169,7 +169,7 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 			}
 			if !result.Cancelled {
 				if stream {
-					_ = writeFrame(w, failedFrame(result.Code, result.Message))
+					_ = writeFrame(w, rewriteSSEFrame(failedFrame(result.Code, result.Message), citationRewriter))
 				} else {
 					problem(w, 502, result.Code, result.Message)
 				}

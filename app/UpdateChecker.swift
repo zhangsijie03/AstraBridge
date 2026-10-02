@@ -47,6 +47,7 @@ enum UpdateError: LocalizedError {
     case extractionFailed(String)
     case installLocationNotWritable
     case updaterLaunchFailed(String)
+    case invalidProxy
 
     var errorDescription: String? {
         switch self {
@@ -59,6 +60,7 @@ enum UpdateError: LocalizedError {
         case .extractionFailed(let message): return "更新包解压失败：\(message)"
         case .installLocationNotWritable: return "当前应用目录不可写，请将 AstraBridge 放入用户可写的应用目录后重试。"
         case .updaterLaunchFailed(let message): return "无法启动更新程序：\(message)"
+        case .invalidProxy: return "更新代理配置无效。请使用无认证的 http:// 或 socks5:// 地址，并检查端口；当前更新器不支持其它代理协议。"
         }
     }
 }
@@ -67,6 +69,7 @@ final class UpdateChecker {
     private static let repository = "zhangsijie03/AstraBridge"
     private static let apiURL = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
     private let session: URLSession
+    private var configurationError: Error?
     private let stagingQueue = DispatchQueue(label: "AstraBridge.update-staging", qos: .userInitiated)
 
     init(session: URLSession? = nil) {
@@ -74,12 +77,14 @@ final class UpdateChecker {
             self.session = session
         } else {
             let configuration = URLSessionConfiguration.default
-            if let proxy = Self.environmentProxy() { configuration.connectionProxyDictionary = proxy }
+            do { configuration.connectionProxyDictionary = try Self.environmentProxy() }
+            catch { configurationError = error }
             self.session = URLSession(configuration: configuration)
         }
     }
 
     func check(currentVersion: String, completion: @escaping (Result<AppUpdate?, Error>) -> Void) {
+        if let error = configurationError { finish(completion, .failure(error)); return }
         var request = URLRequest(url: Self.apiURL)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("AstraBridge/\(currentVersion)", forHTTPHeaderField: "User-Agent")
@@ -121,6 +126,7 @@ final class UpdateChecker {
     }
 
     func stage(_ update: AppUpdate, completion: @escaping (Result<StagedAppUpdate, Error>) -> Void) {
+        if let error = configurationError { finish(completion, .failure(error)); return }
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent("AstraBridge-update-\(UUID().uuidString)", isDirectory: true)
         do { try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true) }
         catch { finish(completion, .failure(UpdateError.downloadFailed(error.localizedDescription))); return }
@@ -298,19 +304,31 @@ final class UpdateChecker {
         return url
     }
 
-    private static func environmentProxy() -> [AnyHashable: Any]? {
-        let environment = ProcessInfo.processInfo.environment
-        guard let raw = environment["HTTPS_PROXY"] ?? environment["https_proxy"] ?? environment["HTTP_PROXY"] ?? environment["http_proxy"],
-              let url = URL(string: raw), let host = url.host else { return nil }
-        let httpPort = url.port ?? 80
-        let httpsPort = url.port ?? 443
+    static func environmentProxy(_ environment: [String: String] = ProcessInfo.processInfo.environment) throws -> [AnyHashable: Any]? {
+        guard let raw = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"].compactMap({ environment[$0] }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return nil }
+        guard let url = URL(string: raw), let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              url.path.isEmpty || url.path == "/" else { throw UpdateError.invalidProxy }
+        // 默认端口由代理协议决定，与请求的 GitHub HTTPS 地址无关。
+        let port: Int
+        switch url.scheme?.lowercased() {
+        case "http": port = url.port ?? 80
+        case "socks5", "socks5h": port = url.port ?? 1080
+        default: throw UpdateError.invalidProxy
+        }
+        guard (1...65535).contains(port) else { throw UpdateError.invalidProxy }
+        if url.scheme?.lowercased() != "http" {
+            return [kCFNetworkProxiesSOCKSEnable as String: true,
+                    kCFNetworkProxiesSOCKSProxy as String: host,
+                    kCFNetworkProxiesSOCKSPort as String: port]
+        }
         return [
             kCFNetworkProxiesHTTPEnable as String: true,
             kCFNetworkProxiesHTTPProxy as String: host,
-            kCFNetworkProxiesHTTPPort as String: httpPort,
+            kCFNetworkProxiesHTTPPort as String: port,
             kCFNetworkProxiesHTTPSEnable as String: true,
             kCFNetworkProxiesHTTPSProxy as String: host,
-            kCFNetworkProxiesHTTPSPort as String: httpsPort
+            kCFNetworkProxiesHTTPSPort as String: port
         ]
     }
 

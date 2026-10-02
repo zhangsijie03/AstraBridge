@@ -92,7 +92,7 @@ internal sealed class UpdateChecker : IDisposable
 
     public void EnsureInstallLocationWritable()
     {
-        // 更新采用同级目录原子替换，必须提前检查父目录权限。
+        // 同级暂存与逐文件替换都需要写入权限，关闭引擎前先验证。
         var parent = Directory.GetParent(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory))?.FullName
             ?? throw new UnauthorizedAccessException("不能在磁盘根目录执行更新，请将应用放入单独目录。");
         var probe = Path.Combine(parent, $".update-probe-{Guid.NewGuid():N}");
@@ -100,6 +100,9 @@ internal sealed class UpdateChecker : IDisposable
         {
             File.WriteAllText(probe, "AstraBridge update probe", Encoding.UTF8);
             File.Delete(probe);
+            var installProbe = Path.Combine(AppContext.BaseDirectory, Path.GetFileName(probe));
+            File.WriteAllText(installProbe, "AstraBridge update probe", Encoding.UTF8);
+            File.Delete(installProbe);
         }
         catch (Exception error) when (error is UnauthorizedAccessException or IOException)
         {
@@ -120,8 +123,9 @@ $token = Split-Path -Leaf $cleanup
 $temporary = "$target.update-$token"
 $backup = "$target.previous-$token"
 $log = Join-Path $cleanup 'update.log'
-$moved = $false
-$installed = $false
+$changed = [System.Collections.Generic.List[string]]::new()
+$createdDirectories = [System.Collections.Generic.List[string]]::new()
+$rollbackComplete = $true
 try {
     "AstraBridge updater started: $(Get-Date)" | Out-File -LiteralPath $log -Encoding utf8
     for ($attempt = 0; $attempt -lt 240; $attempt++) {
@@ -130,27 +134,70 @@ try {
     }
     if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { throw 'Old app did not exit; keeping current version.' }
     Start-Sleep -Milliseconds 500
-    # 完整复制后再移动旧版；替换或重启失败均恢复旧版，并保留诊断日志。
+    # 安装目录属于用户；只替换新发行包列出的文件，绝不移动或删除整个目录。
+    $source = [IO.Path]::GetFullPath($source).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $items = @(Get-ChildItem -LiteralPath $source -Recurse -Force)
+    if ($items | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Package contains a link.' }
+    $files = @($items | Where-Object { -not $_.PSIsContainer } | ForEach-Object { $_.FullName.Substring($source.Length + 1) })
+    if (-not ($files -contains 'AstraBridge.exe') -or -not (Test-Path -LiteralPath (Join-Path $source 'engine/bps-local.exe') -PathType Leaf)) { throw 'Package executable missing.' }
+    foreach ($relative in $files) {
+        $destination = Join-Path $target $relative
+        # 拒绝目录/链接冲突，避免把程序文件写到安装目录以外。
+        for ($entry = $destination; $entry -and $entry.StartsWith($target, [StringComparison]::OrdinalIgnoreCase); $entry = Split-Path -Parent $entry) {
+            if (Test-Path -LiteralPath $entry) {
+                $info = Get-Item -LiteralPath $entry -Force
+                if ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Install path contains a link: $relative" }
+                if (($entry -eq $destination) -eq $info.PSIsContainer) { throw "File/directory conflict: $relative" }
+            }
+            if ($entry -eq $target) { break }
+        }
+    }
     Copy-Item -LiteralPath $source -Destination $temporary -Recurse -Force
-    if (-not (Test-Path -LiteralPath (Join-Path $temporary 'AstraBridge.exe'))) { throw 'Package executable missing.' }
-    Move-Item -LiteralPath $target -Destination $backup -Force
-    $moved = $true
-    Move-Item -LiteralPath $temporary -Destination $target -Force
-    $installed = $true
+    # 所有旧文件先备份完成，再写入任何新文件；备份失败时安装目录保持原状。
+    foreach ($relative in $files) {
+        $destination = Join-Path $target $relative
+        if (Test-Path -LiteralPath $destination) {
+            $saved = Join-Path $backup $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $saved) -Force | Out-Null
+            Copy-Item -LiteralPath $destination -Destination $saved -Force
+        }
+    }
+    foreach ($relative in $files) {
+        $destination = Join-Path $target $relative
+        $missing = [System.Collections.Generic.List[string]]::new()
+        for ($directory = Split-Path -Parent $destination; -not (Test-Path -LiteralPath $directory); $directory = Split-Path -Parent $directory) { $missing.Add($directory) }
+        for ($index = $missing.Count - 1; $index -ge 0; $index--) {
+            New-Item -ItemType Directory -Path $missing[$index] | Out-Null
+            $createdDirectories.Add($missing[$index])
+        }
+        $changed.Add($relative)
+        Move-Item -LiteralPath (Join-Path $temporary $relative) -Destination $destination -Force
+    }
     Start-Process -FilePath (Join-Path $target 'AstraBridge.exe')
 }
 catch {
     "Update failed: $_" | Add-Content -LiteralPath $log
-    try {
-        if ($moved) {
-            if ($installed) { Remove-Item -LiteralPath $target -Recurse -Force }
-            Move-Item -LiteralPath $backup -Destination $target -Force
+    for ($index = $changed.Count - 1; $index -ge 0; $index--) {
+        $relative = $changed[$index]
+        try {
+            $destination = Join-Path $target $relative
+            $saved = Join-Path $backup $relative
+            if (Test-Path -LiteralPath $saved) { Copy-Item -LiteralPath $saved -Destination $destination -Force }
+            elseif (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }
         }
+        catch { $rollbackComplete = $false; "Rollback failed: $_; backup=$backup" | Add-Content -LiteralPath $log }
+    }
+    for ($index = $createdDirectories.Count - 1; $index -ge 0; $index--) {
+        $directory = $createdDirectories[$index]
+        if (-not (Get-ChildItem -LiteralPath $directory -Force)) { Remove-Item -LiteralPath $directory -Force }
+    }
+    if ($rollbackComplete) {
+        Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
         if (-not (Get-Process -Id $processId -ErrorAction SilentlyContinue)) {
-            Start-Process -FilePath (Join-Path $target 'AstraBridge.exe')
+            try { Start-Process -FilePath (Join-Path $target 'AstraBridge.exe') }
+            catch { "Relaunch failed: $_" | Add-Content -LiteralPath $log }
         }
     }
-    catch { "Rollback/relaunch failed: $_; backup=$backup" | Add-Content -LiteralPath $log }
     exit 12
 }
 finally { Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue }

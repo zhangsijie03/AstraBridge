@@ -4,19 +4,21 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-var localFileCitationPattern = regexp.MustCompile("【([^】:\\r\\n]+):(\\d+)】\\s*\\(\\s*<\\s*([^>\\r\\n]+)\\s*>\\s*\\)")
+var localFileCitationPattern = regexp.MustCompile("【([^【】:\\r\\n]+):(\\d+)】\\s*\\(\\s*<\\s*([^>\\r\\n]+)\\s*>\\s*\\)")
 
 const (
 	localFileGrantTTL = 24 * time.Hour
@@ -39,8 +41,9 @@ var localFileSensitiveSegments = map[string]struct{}{
 }
 
 type localFileGrant struct {
-	path    string
-	expires time.Time
+	path     string
+	identity os.FileInfo
+	expires  time.Time
 }
 
 // localFileBroker turns a validated local path into a short-lived opaque URL.
@@ -56,13 +59,15 @@ func newLocalFileBroker() *localFileBroker {
 }
 
 func (b *localFileBroker) issue(path string) (string, bool) {
-	if b == nil || !safeLocalCitationPath(path) {
+	canonical, ok := canonicalLocalCitationPath(path)
+	if b == nil || !ok {
 		return "", false
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > localFileMaxBytes {
+	file, info, err := openLocalCitation(canonical)
+	if err != nil {
 		return "", false
 	}
+	_ = file.Close()
 	var raw [24]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", false
@@ -81,7 +86,7 @@ func (b *localFileBroker) issue(path string) (string, bool) {
 		}
 		delete(b.grants, oldest)
 	}
-	b.grants[token] = localFileGrant{path: path, expires: now.Add(localFileGrantTTL)}
+	b.grants[token] = localFileGrant{path: canonical, identity: info, expires: now.Add(localFileGrantTTL)}
 	return token, true
 }
 
@@ -100,13 +105,12 @@ func (b *localFileBroker) serve(w http.ResponseWriter, r *http.Request, token st
 	if !ok || !safeLocalCitationPath(grant.path) {
 		return false
 	}
-	file, err := os.Open(grant.path)
+	file, info, err := openLocalCitation(grant.path)
 	if err != nil {
 		return false
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > localFileMaxBytes {
+	if !os.SameFile(grant.identity, info) {
 		return false
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -133,14 +137,18 @@ func localFileContentType(path string) string {
 }
 
 type citationRewriter struct {
-	pending map[string]string
-	links   map[string]string
-	broker  *localFileBroker
-	baseURL string
+	pending        map[string]string
+	pendingEvents  map[string]map[string]any
+	sequenceOffset int64
+	lastSequence   int64
+	hasSequence    bool
+	links          map[string]string
+	broker         *localFileBroker
+	baseURL        string
 }
 
 func newCitationRewriter(broker *localFileBroker, baseURL string) *citationRewriter {
-	return &citationRewriter{pending: make(map[string]string), links: make(map[string]string), broker: broker, baseURL: strings.TrimRight(baseURL, "/")}
+	return &citationRewriter{pending: make(map[string]string), pendingEvents: make(map[string]map[string]any), links: make(map[string]string), broker: broker, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 func (r *citationRewriter) feed(key, chunk string) string {
@@ -168,7 +176,7 @@ func (r *citationRewriter) feed(key, chunk string) string {
 			value = candidate[matchStart+len(match[0]):]
 			continue
 		}
-		if strings.IndexRune(candidate, '】') < 0 || citationMayContinue(candidate) {
+		if citationMayContinue(candidate) {
 			r.pending[key] = candidate
 			break
 		}
@@ -194,12 +202,48 @@ func (r *citationRewriter) rewrite(value string) string {
 }
 
 func citationMayContinue(value string) bool {
-	close := strings.IndexRune(value, '】')
-	if close < 0 {
+	// 只缓存真正可能构成引用的前缀；普通【说明】和普通括号立即透传。
+	label, rest, colon := strings.Cut(strings.TrimPrefix(value, "【"), ":")
+	if strings.ContainsAny(label, "【】\r\n") {
+		return false
+	}
+	if !colon {
 		return true
 	}
-	rest := strings.TrimSpace(value[close+len("】"):])
-	return rest == "" || strings.HasPrefix(rest, "(") || strings.HasPrefix(rest, "(<")
+	if label == "" {
+		return false
+	}
+	i := 0
+	for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+		i++
+	}
+	if i == len(rest) {
+		return true
+	}
+	if i == 0 || !strings.HasPrefix(rest[i:], "】") {
+		return false
+	}
+	rest = rest[i+len("】"):]
+	for _, delimiter := range []string{"(", "<"} {
+		rest = strings.TrimLeft(rest, " \t\r\n\f")
+		if rest == "" {
+			return true
+		}
+		if !strings.HasPrefix(rest, delimiter) {
+			return false
+		}
+		rest = strings.TrimPrefix(rest, delimiter)
+	}
+	rest = strings.TrimLeft(rest, " \t\r\n\f")
+	location, suffix, closed := strings.Cut(rest, ">")
+	// 路径外围可分行排版，但路径正文中的换行不属于引用语法。
+	if strings.ContainsAny(strings.TrimRight(location, " \t\r\n\f"), "\r\n") {
+		return false
+	}
+	if !closed {
+		return true
+	}
+	return strings.TrimSpace(location) != "" && strings.TrimSpace(suffix) == ""
 }
 
 func (r *citationRewriter) render(label, labelLine, location string) string {
@@ -264,6 +308,10 @@ func safeLocalCitationPath(raw string) bool {
 	if !allowed {
 		return false
 	}
+	return safeLocalCitationName(path) && safeLocalCitationName(resolved)
+}
+
+func safeLocalCitationName(path string) bool {
 	for _, segment := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
 		if _, sensitive := localFileSensitiveSegments[strings.ToLower(segment)]; sensitive {
 			return false
@@ -282,6 +330,68 @@ func safeLocalCitationPath(raw string) bool {
 		return false
 	}
 	return true
+}
+
+// 使用逐级目录句柄打开已经规范化的路径，不跟随文件或目录的符号链接。
+// 每次打开后核对身份，避免检查与打开之间的替换；在完成核对前不读取内容。
+func openLocalCitation(path string) (*os.File, os.FileInfo, error) {
+	denied := errors.New("local file changed or is not safe")
+	if !safeLocalCitationPath(path) {
+		return nil, nil, denied
+	}
+	roots := []string{os.TempDir()}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots, home)
+	}
+	for _, rootPath := range roots {
+		rootPath, err := filepath.EvalSymlinks(rootPath)
+		if err != nil || !pathWithinLocalRoot(rootPath, path) {
+			continue
+		}
+		relative, err := filepath.Rel(rootPath, path)
+		if err != nil {
+			return nil, nil, err
+		}
+		root, err := os.OpenRoot(rootPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer func() { _ = root.Close() }()
+		parts := strings.Split(relative, string(filepath.Separator))
+		for _, part := range parts[:len(parts)-1] {
+			info, err := root.Lstat(part)
+			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return nil, nil, denied
+			}
+			next, err := root.OpenRoot(part)
+			if err != nil {
+				return nil, nil, err
+			}
+			opened, err := next.Stat(".")
+			if err != nil || !os.SameFile(info, opened) {
+				_ = next.Close()
+				return nil, nil, denied
+			}
+			_ = root.Close()
+			root = next
+		}
+		name := parts[len(parts)-1]
+		before, err := root.Lstat(name)
+		if err != nil || !before.Mode().IsRegular() {
+			return nil, nil, denied
+		}
+		file, err := root.Open(name)
+		if err != nil {
+			return nil, nil, err
+		}
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() || info.Size() > localFileMaxBytes || !os.SameFile(before, info) {
+			_ = file.Close()
+			return nil, nil, denied
+		}
+		return file, info, nil
+	}
+	return nil, nil, denied
 }
 
 func pathWithinLocalRoot(root, path string) bool {
@@ -318,6 +428,7 @@ func rewriteSSEFrame(frame string, rewriter *citationRewriter) string {
 		return frame
 	}
 	lines := strings.SplitAfter(frame, "\n")
+	var prefix strings.Builder
 	for i, line := range lines {
 		if !strings.HasPrefix(line, "data: ") {
 			continue
@@ -329,13 +440,70 @@ func rewriteSSEFrame(frame string, rewriter *citationRewriter) string {
 		if decoder.Decode(&payload) != nil || payload == nil {
 			continue
 		}
+		// 在 done/终止事件前补齐缓存正文，并为插入事件调整序号，保持严格客户端兼容。
+		for _, delta := range rewriter.flushBefore(payload) {
+			if sequence, ok := payload["sequence_number"]; ok {
+				delta["sequence_number"] = sequence
+			}
+			rewriter.adjustSequence(delta)
+			encoded, _ := json.Marshal(delta)
+			prefix.WriteString("event: response.output_text.delta\ndata: " + string(encoded) + "\n\n")
+			rewriter.sequenceOffset++
+		}
 		rewriteSSEPayload(payload, rewriter)
+		rewriter.adjustSequence(payload)
 		encoded, err := json.Marshal(payload)
 		if err == nil {
 			lines[i] = "data: " + string(encoded) + "\n"
 		}
 	}
-	return strings.Join(lines, "")
+	return prefix.String() + strings.Join(lines, "")
+}
+
+func (r *citationRewriter) adjustSequence(payload map[string]any) {
+	// 本地生成的断流失败事件没有上游序号，也要延续已开始编号的流。
+	if value, ok := payload["sequence_number"].(json.Number); ok {
+		if number, err := value.Int64(); err == nil {
+			r.lastSequence = number + r.sequenceOffset
+			r.hasSequence = true
+			payload["sequence_number"] = r.lastSequence
+		}
+	} else if r.hasSequence {
+		r.lastSequence++
+		payload["sequence_number"] = r.lastSequence
+	}
+}
+
+func (r *citationRewriter) flushBefore(payload map[string]any) []map[string]any {
+	kind, _ := payload["type"].(string)
+	var keys []string
+	for key := range r.pending {
+		flush := false
+		switch kind {
+		case "response.output_text.done", "response.content_part.done":
+			flush = key == citationKey(payload)
+		case "response.output_item.done":
+			flush = strings.HasPrefix(key, jsonNumberText(payload["output_index"])+":")
+		case "response.completed", "response.failed", "response.cancelled", "response.incomplete", "error":
+			flush = true
+		}
+		if flush {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	var deltas []map[string]any
+	for _, key := range keys {
+		delta := r.pendingEvents[key]
+		if delta != nil && r.pending[key] != "" {
+			delta["delta"] = r.pending[key]
+			delete(delta, "sequence_number")
+			deltas = append(deltas, delta)
+		}
+		delete(r.pending, key)
+		delete(r.pendingEvents, key)
+	}
+	return deltas
 }
 
 func rewriteSSEPayload(payload map[string]any, rewriter *citationRewriter) {
@@ -344,6 +512,15 @@ func rewriteSSEPayload(payload map[string]any, rewriter *citationRewriter) {
 	case "response.output_text.delta":
 		if delta, ok := payload["delta"].(string); ok {
 			payload["delta"] = rewriter.feed(citationKey(payload), delta)
+			if rewriter.pending[citationKey(payload)] != "" {
+				metadata := make(map[string]any, len(payload))
+				for key, value := range payload {
+					metadata[key] = value
+				}
+				rewriter.pendingEvents[citationKey(payload)] = metadata
+			} else {
+				delete(rewriter.pendingEvents, citationKey(payload))
+			}
 		}
 	case "response.output_text.done":
 		if value, ok := payload["text"].(string); ok {
