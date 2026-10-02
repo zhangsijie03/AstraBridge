@@ -8,7 +8,7 @@
 - 原协议目录：`backend/internal/service/basispoints/`
 - 本地协议目录：`internal/basispoints/`
 
-59 个协议源码、测试与说明文件逐字节保持原样；2 个协议文件登记为星桥本地适配；另保留 1 个明确标注的图片共享代码提取文件。3 个 `backend/internal/util/transportdiag/` 文件原样抽离到 `internal/transportdiag/`。下载时核对固定提交目录树的 Git blob 哈希；`python3 scripts/check_upstream.py` 同时校验上游锁定文件、本地适配哈希和本地回归文件哈希。任何未登记文件或哈希漂移都会阻止打包。
+58 个协议源码、测试与说明文件逐字节保持原样；4 个协议文件登记为星桥本地适配；另保留 1 个明确标注的图片共享代码提取文件，并登记 4 个本地回归与辅助文件。3 个 `backend/internal/util/transportdiag/` 文件原样抽离到 `internal/transportdiag/`。下载时核对固定提交目录树的 Git blob 哈希；`python3 scripts/check_upstream.py` 同时校验上游锁定文件、本地适配哈希和本地回归文件哈希。任何未登记文件或哈希漂移都会阻止打包。
 
 `upstream-manifest.json` 记录逐文件来源及哈希。图片辅助提取仍来自此前固定的 v2.8.17 提交，单独标注；`baseline_sha256` 留存 v2.8.11 历史记录。哈希清单不是上游签名。
 
@@ -38,6 +38,10 @@
 - 等待响应头调整为原生默认 300 秒；附件上传仍为 60 秒。明确 Free 套餐按原生拒绝，未知套餐不会误判。
 
 宿主参考文件路径见 manifest 的 host_adapter_sources。独立桌面仍使用本地监听、固定 gpt-6-astra、手动启动、8 并发和请求体内存预算、60 分钟总时限及 15 秒写入时限。账号登录与刷新仍由 Codex 管理；不会写入登录文件。
+
+## 2026-10-02 BPS 兼容修复
+
+检查 Sub2API 当前主分支至 `bf9405e4ab58c1be4fc8ec2101371753a016908e` 后，选择性移植两个与星桥本地 Responses 客户端直接相关的修复：根据当前可调用目录生成工具传输示例，并移除客户端兼容层生成的消息 ID。两项变更登记在 `upstream-manifest.json` 的 `local_patches` 与 `local_files` 中，未把普通 Codex 的模型目录、账号调度或 Prism 通道带入星桥。星桥仍固定请求 BPS 的 `gpt-6-astra`；`gpt-6.1-sol` 是上游新增的普通模型目录项，不能仅凭目录更新断言它可以替代当前 BPS 路由。
 
 ## 未启用的平台能力
 

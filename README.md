@@ -149,9 +149,9 @@ scripts/             构建、来源校验与离线检查
 
 ## 上游来源与许可
 
-文本、工具及图片协议同步 [Sub2API v2.9.4](https://github.com/ranxi2001/sub2api/releases/tag/v2.9.4)，固定提交 `7dd10bfe4b635f226f0ddfa52cc65797697272d8`。沿用原生工具传输、批次校验及有限纠错，星桥网关接入原生工具目录继承、会话隔离、图片预校验及单次加密推理恢复。
+文本、工具及图片协议以 [Sub2API v2.9.4](https://github.com/ranxi2001/sub2api/releases/tag/v2.9.4) 的固定提交 `7dd10bfe4b635f226f0ddfa52cc65797697272d8` 为基线，并移植已核对的后续 BPS 兼容修复。沿用原生工具传输、批次校验及有限纠错，星桥网关接入原生工具目录继承、会话隔离、图片预校验及单次加密推理恢复。
 
-当前锁定 **62 个协议文件：59 个逐字节一致的 v2.9.4 文件、2 个明确登记的星桥本地适配文件、1 个明确标注的图片共享代码提取文件**。另原样沿用并校验 3 个传输诊断文件。桌面 UI、账号读取和独立网关是本项目适配代码，并非整个 Sub2API 平台的原封不动复制。完整边界见 [来源说明](docs/source-provenance.md) 和 [哈希清单](upstream-manifest.json)。
+当前锁定 **62 个协议文件：58 个逐字节一致的 v2.9.4 文件、4 个明确登记的星桥本地适配文件、1 个明确标注的图片共享代码提取文件**，另登记 4 个本地回归与辅助文件。另原样沿用并校验 3 个传输诊断文件。桌面 UI、账号读取和独立网关是本项目适配代码，并非整个 Sub2API 平台的原封不动复制。完整边界见 [来源说明](docs/source-provenance.md) 和 [哈希清单](upstream-manifest.json)。
 
 AstraBridge 原创代码按 [GPL-3.0-only](LICENSE) 开源；第三方代码保留各自许可证及归属，见 [NOTICE](NOTICE) 与 [licenses](licenses)。感谢 Sub2API 与原协议作者 [hloolx/codex2api](https://github.com/hloolx/codex2api)。
 

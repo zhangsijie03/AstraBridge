@@ -181,7 +181,7 @@ func prepare(raw []byte, scope string, replay *ReplayCache, nativeToolImages map
 			"FUNCTION_CODE: when a catalog function explicitly specifies this transport, set summary to exactly codex2api.function_code/CATALOG_NAME, put its exact code argument directly in native code, and serialize all other arguments as one JSON object in extended_summary ({} if none). Never put code in extended_summary. This replaces the FUNCTION envelope for that tool, so do not JSON-wrap, fence or re-escape the code text. " +
 			"FUNCTION_CMD: when a catalog function explicitly specifies this transport, set summary to exactly codex2api.function_cmd/CATALOG_NAME, put the exact cmd argument directly in native code, and serialize all other arguments as one JSON object in extended_summary ({} if none). Never include cmd in extended_summary or wrap command text in another JSON envelope. " +
 			"CUSTOM: set summary to exactly codex2api.custom/CATALOG_NAME and put the exact raw tool input directly in code. Do not wrap custom input in another JSON object or add Markdown fences. " +
-			"For example, custom functions.exec uses summary=codex2api.custom/functions.exec and code containing its raw JavaScript; custom functions.apply_patch uses its exact patch text. The marker is mandatory for raw input. " +
+			"Use a CUSTOM marker only for a tool declared as custom in the current catalog. " +
 			"CATALOG_NAME includes its exact namespace. Outer arguments also include extended_summary, destructive=false and references=[]. For ordinary FUNCTION transport, use a descriptive summary; FUNCTION_CODE and FUNCTION_CMD use their exact markers and metadata JSON instead. " +
 			"Never nest run_officejs inside code. Serialize outer native arguments with proper JSON escaping. For FUNCTION envelopes also escape all quotes, backslashes, newline, carriage return and tab characters within JSON string values. " +
 			"Call one client tool at a time, including update_plan through this transport. After receiving its result continue the task; do not repeat completed calls. " +
@@ -189,6 +189,7 @@ func prepare(raw []byte, scope string, replay *ReplayCache, nativeToolImages map
 			"Do not call other native tools or claim that shell, filesystem or workspace access is unavailable when a suitable catalog tool exists. " +
 			"If no tool is needed, answer as assistant text. Client tool catalog:\n" + describeCatalog(catalog) +
 			"\nEnd of catalog. Invoke native run_officejs once. Follow each tool's specified transport: FUNCTION uses a JSON envelope; FUNCTION_CODE uses raw code plus metadata JSON in extended_summary; FUNCTION_CMD uses raw cmd plus metadata JSON; CUSTOM uses its exact marker and raw input. No Office code is executed by the proxy."
+		protocol += b.toolExamples()
 	}
 	if len(b.unsupportedTools) > 0 {
 		kinds := make([]string, 0, len(b.unsupportedTools))

@@ -1,8 +1,10 @@
 package basispoints
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // normalizeHistoryMessage keeps client attribution as text rather than sending
@@ -15,6 +17,9 @@ func normalizeHistoryMessage(item object, index int) (object, error) {
 	agent := kind == "agent_message"
 	if !agent && kind != "message" && (kind != "" || text(item["role"]) == "") {
 		return item, nil
+	}
+	if !agent {
+		item = omitCompatibilityMessageID(item)
 	}
 	metadata := make(object)
 	for key, value := range item {
@@ -63,4 +68,24 @@ func normalizeHistoryMessage(item object, index int) (object, error) {
 	content = append(content, parts...)
 	out["content"] = content
 	return out, nil
+}
+
+// The client compatibility converter emits local item_<12-byte hex> IDs.
+// BPS does not persist those IDs, so omit only that recognized shape while
+// retaining native IDs and every tool-call identity.
+func omitCompatibilityMessageID(item object) object {
+	id := text(item["id"])
+	if len(id) != len("item_")+24 || !strings.HasPrefix(id, "item_") {
+		return item
+	}
+	if _, err := hex.DecodeString(id[len("item_"):]); err != nil {
+		return item
+	}
+	out := make(object, len(item)-1)
+	for key, value := range item {
+		if key != "id" {
+			out[key] = value
+		}
+	}
+	return out
 }

@@ -209,9 +209,22 @@
       "upstream_sha256": "52c6d96e40670ad1e3583fb0164ded7630303ae6ec4223413595cf406e851029",
       "local_sha256": "ba0da6bd4d2f079a3eb76b7bf212e405418362a3e66b3fd2f63774d185014e3d",
       "reason": "AstraBridge wire compatibility repair for long-running Responses clients"
+    },
+    "history_messages.go": {
+      "upstream_sha256": "83dc3b49810d8003103b32217470cdeea266dda84b3c745d0da5b92b4e0912fb",
+      "local_sha256": "5b0afaa8809e7219263dcf75ac0537724dc52d0c2cf7006edaf7fd1369f74cce",
+      "reason": "Ported sub2api post-v2.9.4 compatibility-ID fix so client-generated message IDs are not sent to BPS."
+    },
+    "request.go": {
+      "upstream_sha256": "74321a701b5a4936a9b700f954c73172bb6a572f4583231806bead644c26c5cb",
+      "local_sha256": "2f633a42d1abd1b067bd93aa02737276131a0e69787c926961e9fff5f0f271d3",
+      "reason": "Ported sub2api post-v2.9.4 catalog-driven tool examples so the model sees only valid bridge transports."
     }
   },
   "local_files": {
-    "output_wire_test.go": "a5e7523dfb622838ab0297cf53f0a8a4d897409339ec882df96831fa114b42eb"
+    "output_wire_test.go": "a5e7523dfb622838ab0297cf53f0a8a4d897409339ec882df96831fa114b42eb",
+    "history_message_id_test.go": "f212b16366116830f42e2b772593a339ae9d09993a94702faf5a2557b7e08169",
+    "tool_examples.go": "846b6bec713bcaefab470a25bc9e9e81cb7c1c91cfb7930e33a2400d1922c848",
+    "tool_examples_test.go": "bab559153e3b86f4b15c77a91f38a34e476c312829036139632182e72bf7319b"
   }
 }
