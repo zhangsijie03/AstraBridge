@@ -151,6 +151,20 @@ func newCitationRewriter(broker *localFileBroker, baseURL string) *citationRewri
 	return &citationRewriter{pending: make(map[string]string), pendingEvents: make(map[string]map[string]any), links: make(map[string]string), broker: broker, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
+func (g *Gateway) requestCitationRewriter(source map[string]json.RawMessage) *citationRewriter {
+	var text struct {
+		Format struct {
+			Type string `json:"type"`
+		} `json:"format"`
+	}
+	_ = json.Unmarshal(source["text"], &text)
+	// 原生层已验证请求格式；结构化终态不能再改写，否则会破坏 JSON 转义或 Schema 约束。
+	if text.Format.Type != "" && text.Format.Type != "text" {
+		return nil
+	}
+	return newCitationRewriter(g.fileBroker, g.localFileBaseURL)
+}
+
 func (r *citationRewriter) feed(key, chunk string) string {
 	if chunk == "" {
 		return chunk
@@ -269,6 +283,8 @@ func (r *citationRewriter) render(label, labelLine, location string) string {
 }
 
 func splitCitationLocation(location string) (string, string, bool) {
+	// 正则允许引用外围空白；只清理语法空白，保留路径及文件名内部的空格。
+	location = strings.Trim(location, " \t\r\n\f")
 	index := strings.LastIndex(location, ":")
 	if index <= 0 || index == len(location)-1 {
 		return "", "", false

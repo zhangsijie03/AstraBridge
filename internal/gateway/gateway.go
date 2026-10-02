@@ -373,7 +373,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	converted := g.streamWithRepairs(ctx, bridge, resp.Body, prepared, account)
 	defer converted.Close()
-	g.forwardStream(w, r, ctx, converted, stream, &result)
+	g.forwardStream(w, r, ctx, converted, stream, &result, g.requestCitationRewriter(source))
 	traceSuccess = result.Success
 	if traceSuccess {
 		g.upstreamBackoff.success()

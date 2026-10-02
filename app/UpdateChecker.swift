@@ -2,6 +2,31 @@ import Foundation
 import CryptoKit
 import CFNetwork
 
+enum ProxyEnvironment {
+    private static let keys = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]
+
+    static func explicitProxy(in environment: [String: String]) -> String? {
+        keys.compactMap { environment[$0] }.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    static func forEngine(_ environment: [String: String] = ProcessInfo.processInfo.environment,
+                          systemSettings: [String: Any]? = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any]) -> [String: String] {
+        var result = environment
+        if let explicit = explicitProxy(in: environment) {
+            // 与更新器采用同一优先级；将 HTTP_PROXY 后备选择传给 Go 的 HTTPS 请求。
+            result["HTTPS_PROXY"] = explicit
+        } else if let settings = systemSettings,
+                  let enabled = settings[kCFNetworkProxiesHTTPSEnable as String] as? Int, enabled == 1,
+                  let host = settings[kCFNetworkProxiesHTTPSProxy as String] as? String, !host.isEmpty,
+                  let port = settings[kCFNetworkProxiesHTTPSPort as String] as? Int, (1...65535).contains(port) {
+            // 只有未指定环境代理时，才补充系统静态 HTTPS 代理，不改动其它环境变量。
+            let authority = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+            result["HTTPS_PROXY"] = "http://\(authority):\(port)"
+        }
+        return result
+    }
+}
+
 private struct GitHubReleasePayload: Decodable {
     let tagName: String
     let body: String?
@@ -305,7 +330,7 @@ final class UpdateChecker {
     }
 
     static func environmentProxy(_ environment: [String: String] = ProcessInfo.processInfo.environment) throws -> [AnyHashable: Any]? {
-        guard let raw = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"].compactMap({ environment[$0] }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return nil }
+        guard let raw = ProxyEnvironment.explicitProxy(in: environment) else { return nil }
         guard let url = URL(string: raw), let host = url.host, !host.isEmpty,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
               url.path.isEmpty || url.path == "/" else { throw UpdateError.invalidProxy }

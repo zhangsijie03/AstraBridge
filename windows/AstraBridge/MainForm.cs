@@ -230,7 +230,7 @@ internal sealed class MainForm : Form
         catch (ExternalException) { MessageBox.Show(this, "剪贴板暂时不可用，请稍后重试。", "暂时无法复制", MessageBoxButtons.OK, MessageBoxIcon.Information); }
     }
     private void ShowHelp() => MessageBox.Show(this,
-        "1. 在 AiMaMi 登录账号，然后点击「启动中转」。\n2. 打开 AiMaMi「中转注入 → 自定义中转模型」。\n3. 填入本窗口的 Base URL、API Key、模型 ID，协议选择 Responses。\n4. 保存并启用，保持 AiMaMi 真实账号模式。\n\n每次打开星桥都需手动启动。启动仅监听本机；测试连接或发送聊天时才会访问 BPS。\n\n仅支持 gpt-6-astra。支持 PNG、JPEG、GIF、WebP 原生图片附件，单张最多 20 MiB，每次最多 20 张、合计 32 MiB。客户端需发送图片内容，不读取请求中的本地文件路径；暂不支持 JSON Schema 结构化输出。\n\n默认账号目录为用户目录下的 .codex，支持继承 CODEX_HOME。代理继承 HTTPS_PROXY 环境变量。",
+        "1. 在 AiMaMi 登录账号，然后点击「启动中转」。\n2. 打开 AiMaMi「中转注入 → 自定义中转模型」。\n3. 填入本窗口的 Base URL、API Key、模型 ID，协议选择 Responses。\n4. 保存并启用，保持 AiMaMi 真实账号模式。\n\n每次打开星桥都需手动启动。启动仅监听本机；测试连接或发送聊天时才会访问 BPS。\n\n仅支持 gpt-6-astra。支持 PNG、JPEG、GIF、WebP 原生图片附件，单张最多 20 MiB，每次最多 20 张、合计 32 MiB。客户端需发送图片内容，不读取请求中的本地文件路径；支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。\n\n默认账号目录为用户目录下的 .codex，支持继承 CODEX_HOME。代理继承 HTTPS_PROXY 环境变量。",
         "将星桥接入 AiMaMi", MessageBoxButtons.OK, MessageBoxIcon.Information);
     private async Task CheckForUpdatesAsync(bool manual)
     {

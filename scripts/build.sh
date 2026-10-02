@@ -27,7 +27,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleIdentifier</key><string>local.bps.desktop</string>
 <key>CFBundleName</key><string>AstraBridge</string>
 <key>CFBundleDisplayName</key><string>AstraBridge</string>
-<key>CFBundleVersion</key><string>21</string>
+<key>CFBundleVersion</key><string>22</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleIconFile</key><string>AstraBridge</string>
 <key>CFBundlePackageType</key><string>APPL</string>

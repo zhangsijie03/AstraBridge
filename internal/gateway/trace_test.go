@@ -79,7 +79,7 @@ func TestTraceDistinguishesUpstreamBytesFromClientHeartbeat(t *testing.T) {
 	defer pipe.Close()
 	defer writer.Close()
 	result := Result{}
-	g.forwardStream(httptest.NewRecorder(), r, forwardCtx, pipe, true, &result)
+	g.forwardStream(httptest.NewRecorder(), r, forwardCtx, pipe, true, &result, nil)
 	tr.publish()
 	tr.finish(ctx, false)
 	events := capture.snapshot()

@@ -40,7 +40,9 @@ Go race detector 需要受支持的 C 编译器；GitHub Windows runner 已提�
 
 Windows 原生界面使用 WinForms，通过 UTF-8 与 Go JSON 行协议通信。环境变量 `HTTPS_PROXY` / `HTTP_PROXY` 由子进程继承。Windows 版不自动解析系统代理或 PAC；需要代理时请在启动应用前设置 `HTTPS_PROXY`。
 
-macOS 更新器按 `HTTPS_PROXY`、`https_proxy`、`HTTP_PROXY`、`http_proxy` 顺序选取非空配置，支持无认证的 HTTP（默认端口 80）和 SOCKS5 / SOCKS5H（默认端口 1080）。显式端口如 `http://127.0.0.1:6789` 优先；不支持的代理协议或含认证的地址会明确报错。未设置环境变量时沿用 URLSession 的系统代理行为。`test_update_configuration.py` 使用临时本地代理核验实际 HTTP CONNECT / SOCKS5 握手，不连接真实上游。
+macOS 引擎与更新器按 `HTTPS_PROXY`、`https_proxy`、`HTTP_PROXY`、`http_proxy` 顺序选取非空配置，显式环境配置不会被系统代理覆盖。引擎将所选代理传给 Go 的 HTTPS 请求，无显式配置时才补充系统静态 HTTPS 代理；更新器无显式配置时沿用 URLSession 的系统代理行为。应用不内置固定代理地址。
+
+macOS 更新器支持无认证的 HTTP（默认端口 80）和 SOCKS5 / SOCKS5H（默认端口 1080），显式端口优先；不支持的代理协议或含认证的地址会明确报错。`test_update_configuration.py` 验证显式配置与系统配置共存时的优先级，并使用临时本地代理核验实际 HTTP CONNECT / SOCKS5 握手，不连接真实上游。
 
 Windows UI 的 `--preview` 使用合成数据。`--smoke-test --smoke-report <文件>` 在独立临时目录启动引擎，验证初始停止状态、契约和退出，不读取真实账号或发送上游请求。
 

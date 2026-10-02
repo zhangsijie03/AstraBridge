@@ -117,7 +117,7 @@ func failedFrame(code, message string) string {
 	raw, _ := json.Marshal(map[string]interface{}{"type": "response.failed", "response": map[string]interface{}{"status": "failed", "output": []interface{}{}, "error": map[string]string{"code": code, "message": message}}})
 	return "event: response.failed\ndata: " + string(raw) + "\n\n"
 }
-func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx context.Context, body io.Reader, stream bool, result *Result) {
+func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx context.Context, body io.Reader, stream bool, result *Result, citationRewriter *citationRewriter) {
 	if stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -131,7 +131,6 @@ func (g *Gateway) forwardStream(w http.ResponseWriter, r *http.Request, ctx cont
 	ticker := time.NewTicker(g.heartbeatInterval)
 	defer ticker.Stop()
 	frames := scanFrames(ctx, body)
-	citationRewriter := newCitationRewriter(g.fileBroker, g.localFileBaseURL)
 	for {
 		var frame streamFrame
 		var ok bool

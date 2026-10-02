@@ -43,11 +43,34 @@ if mode == "config" {
     require(lower[kCFNetworkProxiesHTTPSProxy as String] as? String == "localhost", "proxy priority")
     let absent = try UpdateChecker.environmentProxy([:])
     require(absent == nil, "empty environment")
+    let system: [String: Any] = [kCFNetworkProxiesHTTPSEnable as String: 1, kCFNetworkProxiesHTTPSProxy as String: "system.invalid", kCFNetworkProxiesHTTPSPort as String: 18902]
+    let base = ["CODEX_HOME": "/synthetic/codex", "NO_PROXY": "example.invalid", "EXTRA_SETTING": "preserved"]
+    // 显式配置、大小写及 HTTP 后备都必须压过系统代理，且两条功能链选择一致。
+    for key in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
+        var inherited = base
+        inherited[key] = "http://explicit.invalid:18901"
+        let engine = ProxyEnvironment.forEngine(inherited, systemSettings: system)
+        require(engine["HTTPS_PROXY"] == "http://explicit.invalid:18901", "system overrode explicit proxy")
+        require(base.allSatisfy { engine[$0.key] == $0.value }, "unrelated environment changed")
+        let updater = try UpdateChecker.environmentProxy(inherited)!
+        require(updater[kCFNetworkProxiesHTTPSProxy as String] as? String == "explicit.invalid", "engine/updater mismatch")
+    }
+    let mixed = ["HTTPS_PROXY": "http://first.invalid:18901", "https_proxy": "http://second.invalid:18902", "HTTP_PROXY": "http://third.invalid:18903"]
+    require(ProxyEnvironment.forEngine(mixed, systemSettings: system)["HTTPS_PROXY"] == mixed["HTTPS_PROXY"], "proxy priority changed")
+    require(ProxyEnvironment.forEngine(["HTTPS_PROXY": " ", "https_proxy": "http://lower.invalid:18901"], systemSettings: system)["HTTPS_PROXY"] == "http://lower.invalid:18901", "empty upper-case masks lower-case")
+    require(ProxyEnvironment.forEngine(["HTTPS_PROXY": "unsupported://explicit.invalid"], systemSettings: system)["HTTPS_PROXY"] == "unsupported://explicit.invalid", "invalid explicit proxy silently fell back")
+    require(ProxyEnvironment.forEngine(base, systemSettings: system)["HTTPS_PROXY"] == "http://system.invalid:18902", "system fallback missing")
+    require(ProxyEnvironment.forEngine(base, systemSettings: nil) == base, "proxy injected without configuration")
+    var disabled = system; disabled[kCFNetworkProxiesHTTPSEnable as String] = 0
+    require(ProxyEnvironment.forEngine(base, systemSettings: disabled) == base, "disabled system proxy used")
+    var ipv6 = system; ipv6[kCFNetworkProxiesHTTPSProxy as String] = "::1"
+    require(ProxyEnvironment.forEngine(base, systemSettings: ipv6)["HTTPS_PROXY"] == "http://[::1]:18902", "invalid IPv6 authority")
     for raw in ["garbage", "https://localhost", "ftp://localhost", "http://user:secret@localhost", "http://localhost/path", "http://localhost:0", "http://localhost:65536", "http://localhost?token=secret"] {
         do { _ = try UpdateChecker.environmentProxy(["HTTPS_PROXY": raw]); fatalError("Accepted invalid proxy") }
         catch UpdateError.invalidProxy { }
     }
     print("PASS: proxy protocols, default/explicit ports, precedence and rejection")
+    print("PASS: engine/updater explicit proxy precedence, system fallback and environment preservation")
 } else if mode == "source" {
     let tag = CommandLine.arguments[2], commit = CommandLine.arguments[3]
     require(Product.sourceDescription.contains(tag), "stale tag")
