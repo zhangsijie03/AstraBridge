@@ -2,12 +2,12 @@
 
 ## 范围
 
-当前版本在 AiMaMi → 星桥 → BPS 链路内，将用户消息中的内联图片上传为原生附件；function/custom 工具结果中的截图按 v2.9.3 原生规则保留经过校验的内联格式。固定模型仍为 `gpt-6-astra`，沿用既有本地地址、Key、账号读取和代理。图片不会发布到本机 HTTP 路由或第三方图床，不读请求里的本地文件路径。
+当前版本在 AiMaMi → 星桥 → BPS 链路内，将用户消息中的内联图片上传为原生附件；function/custom 工具结果中的截图按 v2.9.3 原生规则保留经过校验的内联格式。支持 `gpt-6-astra` 与 `gpt-6.1-sol`，沿用既有本地地址、Key、账号读取和代理。图片不会发布到本机 HTTP 路由或第三方图床，不读请求里的本地文件路径。
 
 ## 流程
 
 1. 本地 API Key 鉴权、请求并发与资源预算准入。
-2. 读取本次服务端账号，校验固定模型与完整 JSON 请求。
+2. 读取本次服务端账号，校验所选模型与完整 JSON 请求。
 3. 上游 `PrepareNativeImages` 校验全部图片，为用户消息图片暂置 `file-preflight`；调用 `NativeImages.PrepareWithCatalog` 校验工具和历史，失败时零上传。
 4. 使用同一 HTTP 客户端/代理、账号及凭据向固定 `https://bps.openai.com/basispoints/api/attachments` 发送 multipart `file`。每次最多 60 秒，禁止重定向。
 5. 校验 `openai_file_id`，关闭上传响应，再把真实附件 ID 转换为 BPS Responses 请求。任何上传失败即终止，不重试、不换账号、不回退。

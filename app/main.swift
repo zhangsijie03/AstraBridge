@@ -4,7 +4,8 @@ import Darwin
 
 private enum EnginePhase: String, Decodable { case idle, testing, enabled, stopped, error }
 private enum EngineAction: String, Encodable { case start, stop, probe, quit }
-private let fixedModelID = "gpt-6-astra"
+private let defaultModelID = "gpt-6-astra"
+private let supportedModelIDs = [defaultModelID, "gpt-6.1-sol"]
 private enum GatewayFailureCode {
     static let rateLimited = "basispoints_rate_limited"
     static let modelUnavailable = "basispoints_model_unavailable"
@@ -56,7 +57,16 @@ private struct EngineEvent: Decodable {
     let result: GatewayResult?
     let trace: TransferTrace?
 }
-private struct Command: Encodable { let action: EngineAction }
+private struct Command: Encodable {
+    let action: EngineAction
+    let model: String?
+    enum CodingKeys: String, CodingKey { case action, model }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(action, forKey: .action)
+        try container.encodeIfPresent(model, forKey: .model)
+    }
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
@@ -81,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var copyURLButton: CopyButton!
     private var copyKeyButton: CopyButton!
     private var copyModelButton: CopyButton!
+    private var modelPicker: NSPopUpButton!
     private let keyStateLabel = NSTextField(labelWithString: "等待服务启动")
     private let countLabel = NSTextField(labelWithString: "0")
     private var startButton: RelayPowerButton!
@@ -105,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             keyStateLabel.stringValue = "•••• •••• •••• ••••"
             accountLabel.stringValue = "demo•••@example.com"
             statusLabel.stringValue = "准备就绪"
-            detailLabel.stringValue = "启动本地中转后，即可通过 AiMaMi 使用固定模型。"
+            detailLabel.stringValue = "启动本地中转后，即可通过 AiMaMi 使用所选模型。"
             previewLabel.isHidden = false
             updateStatusIcon("pause.circle.fill", color: .secondaryLabelColor)
             setBusy(false)
@@ -148,12 +159,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusIcon.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
         statusIcon.contentTintColor = color
     }
-    private func connectionRow(_ title: String, value: NSTextField, note: String? = nil, copy: CopyButton) -> NSView {
+    private func connectionRow(_ title: String, value: NSView, note: String? = nil, copy: CopyButton) -> NSView {
         let heading = stack([label(title, size: 11, weight: .medium, secondary: true)])
         if let note = note { heading.addArrangedSubview(label(note, size: 10, secondary: true)) }
-        value.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
-        value.lineBreakMode = .byTruncatingMiddle
-        value.isSelectable = true
+        if let text = value as? NSTextField {
+            text.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
+            text.lineBreakMode = .byTruncatingMiddle
+            text.isSelectable = true
+        }
         value.setContentCompressionResistancePriority(.init(740), for: .horizontal)
         let text = stack([heading, value], vertical: true, spacing: 6)
         let row = stack([text, spacer(), copy], spacing: 16)
@@ -245,7 +258,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         copyURLButton = CopyButton(label: "复制 Base URL", target: self, action: #selector(copyURL))
         copyKeyButton = CopyButton(label: "复制 API Key", target: self, action: #selector(copyKey))
         copyModelButton = CopyButton(label: "复制模型 ID", target: self, action: #selector(copyModel))
-        let modelValue = NSTextField(labelWithString: fixedModelID)
+        modelPicker = NSPopUpButton()
+        modelPicker.addItems(withTitles: supportedModelIDs)
+        modelPicker.selectItem(withTitle: defaultModelID)
+        modelPicker.controlSize = .small
+        modelPicker.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        modelPicker.setAccessibilityLabel("模型 ID")
         let rows = stack([], vertical: true, spacing: 0)
         let surface = SurfaceView()
         surface.translatesAutoresizingMaskIntoConstraints = false
@@ -259,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let fields = [
             connectionRow("Base URL", value: routeLabel, copy: copyURLButton),
             connectionRow("API Key", value: keyStateLabel, note: "本地中转密钥", copy: copyKeyButton),
-            connectionRow("模型 ID", value: modelValue, note: "固定模型 · 原生图片上传", copy: copyModelButton)
+            connectionRow("模型 ID", value: modelPicker, note: "可选模型 · 原生图片上传", copy: copyModelButton)
         ]
         for (index, row) in fields.enumerated() {
             if index > 0 {
@@ -366,6 +384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let baseURL = event.baseURL { relayBaseURL = baseURL; routeLabel.stringValue = baseURL }
         if let apiKey = event.apiKey { relayAPIKey = apiKey; keyStateLabel.stringValue = "•••• •••• •••• ••••" }
         if let account = event.account { accountLabel.stringValue = account }
+        if let model = event.model, supportedModelIDs.contains(model) { modelPicker.selectItem(withTitle: model) }
         countLabel.stringValue = "\(event.requests)"
         if let result = event.result {
             guard active && !busy else { return }
@@ -438,7 +457,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !value { testButton.title = "测试连接" }
         copyURLButton.isEnabled = !relayBaseURL.isEmpty
         copyKeyButton.isEnabled = !relayAPIKey.isEmpty
-        // 模型是固定的本地常量，与服务是否运行、是否正在测试无关。
+        // 运行中锁定模型，避免网关已经启动后 UI 与实际路由不一致。
+        modelPicker.isEnabled = !value && !active && !closing && !updateInProgress
         copyModelButton.isEnabled = true
     }
 
@@ -452,7 +472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func send(_ action: EngineAction) {
         guard process?.isRunning == true else { showError("后台服务未运行，请重新打开应用"); return }
         do {
-            var data = try JSONEncoder().encode(Command(action: action)); data.append(10)
+            let model = (action == .start || action == .probe) ? modelPicker.selectedItem?.title : nil
+            var data = try JSONEncoder().encode(Command(action: action, model: model)); data.append(10)
             try input.fileHandleForWriting.write(contentsOf: data)
             setBusy(true)
             if action == .probe { testButton.title = "测试中…" }
@@ -463,7 +484,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func requestEngineQuit() {
         guard let process = process, process.isRunning else { return }
         do {
-            var data = try JSONEncoder().encode(Command(action: .quit)); data.append(10)
+            var data = try JSONEncoder().encode(Command(action: .quit, model: nil)); data.append(10)
             try input.fileHandleForWriting.write(contentsOf: data)
             if busy {
                 // 测试请求在引擎主循环内同步执行，额外发 SIGINT 让其立刻取消上下文。
@@ -505,7 +526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 仅复制本地中转 Key，绝不把账号 access token 放入剪贴板。
         copy(relayAPIKey, using: copyKeyButton)
     }
-    @objc private func copyModel() { copy(fixedModelID, using: copyModelButton) }
+    @objc private func copyModel() { copy(modelPicker.selectedItem?.title ?? defaultModelID, using: copyModelButton) }
     @objc private func checkUpdates() { checkForUpdates(manual: true) }
     private func checkForUpdates(manual: Bool) {
         guard !preview, !closing, !updateInProgress, !updateCheckInProgress else { return }
@@ -583,7 +604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openHelp() {
         let alert = NSAlert()
         alert.messageText = "将星桥接入 AiMaMi"
-        alert.informativeText = "1. 点击「启动中转」。\n2. 在 AiMaMi 打开「中转注入 → 自定义中转模型」。\n3. 复制本窗口的 Base URL、API Key 和模型 ID，协议选择 Responses。\n4. 保存并启用中转，保持 AiMaMi 真实账号模式。\n\n启动仅监听本机。点击「测试连接」或发送聊天时，才会使用当前账号连接 BPS。\n\n只支持 gpt-6-astra。图片自动上传为 BPS 原生附件，无需图床或公网域名。支持 PNG、JPEG、GIF、WebP；单张最多 20 MiB，每次最多 20 张、合计 32 MiB。\n\n客户端需发送图片内容；不读取请求里的本地文件路径。支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。"
+        alert.informativeText = "1. 点击「启动中转」。\n2. 在 AiMaMi 打开「中转注入 → 自定义中转模型」。\n3. 复制本窗口的 Base URL、API Key 和模型 ID，协议选择 Responses。\n4. 保存并启用中转，保持 AiMaMi 真实账号模式。\n\n启动仅监听本机。点击「测试连接」或发送聊天时，才会使用当前账号连接 BPS。\n\n支持 gpt-6-astra 和 gpt-6.1-sol。6.1 Sol 不接受 none/minimal 推理档位；图片自动上传为 BPS 原生附件，无需图床或公网域名。支持 PNG、JPEG、GIF、WebP；单张最多 20 MiB，每次最多 20 张、合计 32 MiB。\n\n客户端需发送图片内容；不读取请求里的本地文件路径。支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。"
         alert.informativeText += "\n\n测试连接是真实上游请求，每次测试后有 60 秒冷却，请勿连续点击。"
         alert.addButton(withTitle: "知道了")
         alert.beginSheetModal(for: window)

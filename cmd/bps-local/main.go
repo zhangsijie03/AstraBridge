@@ -26,13 +26,14 @@ import (
 	"bpslocal/internal/gateway"
 	"bpslocal/internal/identity"
 	"bpslocal/internal/localconfig"
+	"bpslocal/internal/modelid"
 	"bpslocal/internal/relayconfig"
 )
 
 type Phase string
 
-// BPS 原版协议只验证这一模型；界面和本地路由不允许切换到其他模型。
-const fixedModelID = "gpt-6-astra"
+// 默认保持 Astra 兼容；6.1 Sol 由桌面端在启动/探测命令中显式选择。
+const defaultModelID = modelid.Default
 
 // 测试请求会真实访问 BPS；冷却窗口避免重复探测触发上游风控。
 const probeCooldown = time.Minute
@@ -176,7 +177,12 @@ func probe(ctx context.Context, authPath, model string, limits *gateway.RateLimi
 	return a, errors.New("上游已返回，但未通过随机校验词检查")
 }
 func (c *controller) test() (identity.Account, error) {
-	c.model = fixedModelID
+	if c.model == "" {
+		c.model = defaultModelID
+	}
+	if !modelid.IsSupported(c.model) {
+		return identity.Account{}, fmt.Errorf("不支持的模型 %q", c.model)
+	}
 	if remaining := probeCooldown - time.Since(c.lastProbe); !c.lastProbe.IsZero() && remaining > 0 {
 		seconds := int((remaining + time.Second - 1) / time.Second)
 		return identity.Account{}, fmt.Errorf("测试请求刚完成，为避免触发 BPS 风控，请 %d 秒后再试", seconds)
@@ -188,7 +194,9 @@ func (c *controller) test() (identity.Account, error) {
 	return probe(ctx, c.authPath, c.model, &c.rateLimits)
 }
 func (c *controller) start() error {
-	c.model = fixedModelID
+	if c.model == "" {
+		c.model = defaultModelID
+	}
 	if c.server != nil {
 		c.status(phaseEnabled, "本地中转已启动，请将地址和 API Key 填入 AiMaMi")
 		return nil
@@ -246,7 +254,7 @@ func (c *controller) start() error {
 			c.status(phaseError, "本地监听意外停止，请退出后重新启动")
 		}
 	}()
-	c.out.send(Event{Type: "state", Phase: phaseEnabled, Account: account.MaskedEmail, Model: c.model, Port: port, BaseURL: c.baseURL, APIKey: c.settings.APIKey, Requests: c.count.Load(), Message: "本地中转已启动；尚未验证上游。将地址和 API Key 填入 AiMaMi，并选择固定模型 gpt-6-astra。"})
+	c.out.send(Event{Type: "state", Phase: phaseEnabled, Account: account.MaskedEmail, Model: c.model, Port: port, BaseURL: c.baseURL, APIKey: c.settings.APIKey, Requests: c.count.Load(), Message: fmt.Sprintf("本地中转已启动；尚未验证上游。将地址和 API Key 填入 AiMaMi，并选择模型 %s。", c.model)})
 	return nil
 }
 func (c *controller) stop() error {
@@ -278,7 +286,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	config := filepath.Join(*codexHome, "config.toml")
-	c := &controller{ctx: ctx, manager: &localconfig.Manager{ConfigPath: config, StateDir: *stateDir}, authPath: filepath.Join(*codexHome, "auth.json"), model: fixedModelID, out: out}
+	c := &controller{ctx: ctx, manager: &localconfig.Manager{ConfigPath: config, StateDir: *stateDir}, authPath: filepath.Join(*codexHome, "auth.json"), model: defaultModelID, out: out}
 	if *probeOnly {
 		a, e := c.test()
 		if e != nil {
@@ -353,22 +361,37 @@ func main() {
 			if !ok {
 				return
 			}
-			// 客户端命令中的 model 字段仅为旧版本兼容，BPS 始终使用固定模型。
-			c.model = fixedModelID
+			// 仅在启动或探测前接受白名单模型；运行中的服务不允许无感切换路由。
+			e = nil
+			if (cmd.Action == "start" || cmd.Action == "probe") && cmd.Model != "" {
+				if !modelid.IsSupported(cmd.Model) {
+					e = fmt.Errorf("不支持的模型 %q；可选模型：%s、%s", cmd.Model, modelid.Default, modelid.GPT61Sol)
+				} else if c.server != nil && cmd.Model != c.model {
+					e = errors.New("中转已运行，请先停止后再切换模型")
+				} else {
+					c.model = cmd.Model
+				}
+			}
 			switch cmd.Action {
 			case "start":
-				e = c.start()
-			case "stop":
-				e = c.stop()
-			case "probe":
-				var a identity.Account
-				a, e = c.test()
 				if e == nil {
-					p := phaseIdle
-					if c.server != nil {
-						p = phaseEnabled
+					e = c.start()
+				}
+			case "stop":
+				if e == nil {
+					e = c.stop()
+				}
+			case "probe":
+				if e == nil {
+					var a identity.Account
+					a, e = c.test()
+					if e == nil {
+						p := phaseIdle
+						if c.server != nil {
+							p = phaseEnabled
+						}
+						out.send(Event{Type: "state", Phase: p, Account: a.MaskedEmail, Model: c.model, Message: "BPS 连通性验证通过；这不代表模型质量评测", Requests: c.count.Load()})
 					}
-					out.send(Event{Type: "state", Phase: p, Account: a.MaskedEmail, Model: c.model, Message: "BPS 连通性验证通过；这不代表模型质量评测", Requests: c.count.Load()})
 				}
 			case "quit":
 				// quit 是进程级退出协议；即使 listener 已被并发关闭，也必须结束主进程。

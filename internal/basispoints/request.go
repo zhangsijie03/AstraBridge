@@ -10,6 +10,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"bpslocal/internal/modelid"
 )
 
 const ResponsesURL = "https://bps.openai.com/basispoints/api/responses"
@@ -58,6 +60,16 @@ func text(value any) string {
 
 // NormalizeEffort caps unsupported high tiers explicitly instead of falling back to medium.
 func NormalizeEffort(effort string) (string, error) {
+	return normalizeEffort(effort, "")
+}
+
+// NormalizeEffortForModel keeps Astra's compatibility aliases while preserving
+// the native 6.1 Sol contract, which does not accept none/minimal.
+func NormalizeEffortForModel(model, effort string) (string, error) {
+	return normalizeEffort(effort, model)
+}
+
+func normalizeEffort(effort, model string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(effort)) {
 	case "", "medium":
 		return "medium", nil
@@ -66,6 +78,9 @@ func NormalizeEffort(effort string) (string, error) {
 	case "xhigh", "x-high", "extra-high", "extra_high", "max", "ultra":
 		return "xhigh", nil
 	case "none", "minimal":
+		if model == modelid.GPT61Sol {
+			return "", fmt.Errorf("%s 不支持 reasoning effort %q；请使用 low、medium、high、xhigh 或 max", model, effort)
+		}
 		return "low", nil
 	default:
 		return "", fmt.Errorf("basispoints reasoning effort %q is unsupported", effort)
@@ -106,7 +121,7 @@ func prepare(raw []byte, scope string, replay *ReplayCache, nativeToolImages map
 			return nil, nil, fmt.Errorf("basispoints does not support reasoning mode %q", mode)
 		}
 	}
-	effort, err := NormalizeEffort(requested)
+	effort, err := NormalizeEffortForModel(model, requested)
 	if err != nil {
 		return nil, nil, err
 	}

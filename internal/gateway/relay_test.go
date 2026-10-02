@@ -2,12 +2,32 @@ package gateway
 
 import (
 	"bpslocal/internal/identity"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestRelayAcceptsGPT61SolAndPreservesModel(t *testing.T) {
+	g := gateway(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Model != "gpt-6.1-sol" {
+			t.Fatalf("6.1 Sol model was changed: %+v, %v", body, err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"sol-1\",\"status\":\"completed\",\"model\":\"gpt-6.1-sol\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n")
+	})
+	w := httptest.NewRecorder()
+	g.model = "gpt-6.1-sol"
+	g.ServeHTTP(w, request(`{"model":"gpt-6.1-sol","input":"hello","stream":true,"reasoning":{"effort":"max"}}`))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "sol-1") {
+		t.Fatalf("6.1 Sol request failed: %d %s", w.Code, w.Body.String())
+	}
+}
 
 // 客户端只提供本地 Key；上游身份必须取自服务端，不能被客户端账号头覆盖。
 func TestRelayUsesServerAccountWithOnlyAPIKey(t *testing.T) {
@@ -40,6 +60,18 @@ func TestRelayModelsNeedsOnlyLocalKey(t *testing.T) {
 	g.ServeHTTP(w, r)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"gpt-6-astra"`) {
 		t.Fatal("cannot list configured model", w.Code, w.Body.String())
+	}
+}
+
+func TestRelayModelsListsBothSupportedRoutesWhenUnpinned(t *testing.T) {
+	g := New("local-key", "", nil, nil)
+	r := request("")
+	r.Method = "GET"
+	r.URL.Path = "/v1/models"
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"id":"gpt-6-astra"`) || !strings.Contains(w.Body.String(), `"id":"gpt-6.1-sol"`) {
+		t.Fatalf("supported model list incomplete: %d %s", w.Code, w.Body.String())
 	}
 }
 

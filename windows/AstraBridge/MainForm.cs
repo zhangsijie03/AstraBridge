@@ -25,6 +25,7 @@ internal sealed class MainForm : Form
     private readonly CopyButton copyUrl = new("复制 Base URL");
     private readonly CopyButton copyKey = new("复制 API Key");
     private readonly CopyButton copyModel = new("复制模型 ID");
+    private readonly ComboBox modelPicker = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private bool busy = true;
     private bool active;
     private bool closing;
@@ -45,13 +46,17 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = SystemColors.Window;
         Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
+        modelPicker.Items.AddRange(Product.Models.ToArray());
+        modelPicker.SelectedItem = Product.DefaultModel;
+        modelPicker.Width = 220;
+        modelPicker.AccessibleName = "模型 ID";
         BuildLayout();
         AcceptButton = power;
         power.Click += async (_, _) => await SendAsync(active ? EngineAction.Stop : EngineAction.Start);
         probe.Click += async (_, _) => await SendAsync(EngineAction.Probe);
         copyUrl.Click += (_, _) => Copy(relayUrl, copyUrl);
         copyKey.Click += (_, _) => Copy(relayKey, copyKey);
-        copyModel.Click += (_, _) => Copy(Product.Model, copyModel);
+        copyModel.Click += (_, _) => Copy(SelectedModel, copyModel);
         engine.Received += value => OnUi(() => Apply(value));
         engine.Faulted += message => OnUi(() =>
         {
@@ -103,7 +108,7 @@ internal sealed class MainForm : Form
         fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         fields.Controls.Add(ConnectionRow("Base URL", baseUrl, copyUrl));
         fields.Controls.Add(ConnectionRow("API Key · 本地中转密钥", apiKey, copyKey));
-        fields.Controls.Add(ConnectionRow("模型 ID · 固定模型 · 原生图片上传", InterfaceStyle.Label(Product.Model, 11), copyModel));
+        fields.Controls.Add(ConnectionRow("模型 ID · 可选模型 · 原生图片上传", modelPicker, copyModel));
         Add(root, fields, 12);
         var count = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         count.Controls.Add(InterfaceStyle.Label("成功请求  ", 9, secondary: true)); count.Controls.Add(requests);
@@ -143,20 +148,23 @@ internal sealed class MainForm : Form
         child.Margin = new Padding(0, 0, 0, after);
         root.Controls.Add(child); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     }
-    private static Control ConnectionRow(string title, Label value, CopyButton copy)
+    private static Control ConnectionRow(string title, Control value, CopyButton copy)
     {
         var text = Stack(); text.Controls.Add(InterfaceStyle.Label(title, 9, secondary: true));
-        value.AutoEllipsis = true; value.AutoSize = false; value.Height = 28; value.Dock = DockStyle.Fill;
+        if (value is Label label) { label.AutoEllipsis = true; label.AutoSize = false; }
+        value.Height = 28; value.Dock = DockStyle.Fill;
         value.MinimumSize = new Size(280, 28); text.Controls.Add(value);
         var row = Columns(text, copy); row.Padding = new Padding(18, 9, 14, 9);
         row.MinimumSize = new Size(0, 75); return row;
     }
 
+    private string SelectedModel => modelPicker.SelectedItem as string ?? Product.DefaultModel;
+
     private void InitializeEngine()
     {
         if (preview)
         {
-            Apply(Protocol.Read("""{"type":"state","phase":"idle","base_url":"http://127.0.0.1:17861/v1","api_key":"preview-local-key-not-a-credential","account":"demo•••@example.com","model":"gpt-6-astra","requests":0,"message":"启动本地中转后，即可通过 AiMaMi 使用固定模型。"}"""));
+            Apply(Protocol.Read("""{"type":"state","phase":"idle","base_url":"http://127.0.0.1:17861/v1","api_key":"preview-local-key-not-a-credential","account":"demo•••@example.com","model":"gpt-6-astra","requests":0,"message":"启动本地中转后，即可通过 AiMaMi 使用所选模型。"}"""));
             return;
         }
         try { engine.Start(); }
@@ -171,6 +179,7 @@ internal sealed class MainForm : Form
         if (value.BaseUrl is { } url) { relayUrl = url; baseUrl.Text = url; tips.SetToolTip(baseUrl, url); }
         if (value.ApiKey is { } key) { relayKey = key; apiKey.Text = "•••• •••• •••• ••••"; }
         if (value.Account is { } maskedAccount) account.Text = maskedAccount;
+        if (value.Model is { } model && Product.IsSupportedModel(model)) modelPicker.SelectedItem = model;
         requests.Text = value.Requests.ToString("N0");
         if (value.Result is { } result)
         {
@@ -183,7 +192,7 @@ internal sealed class MainForm : Form
                 _ => "最近请求未完成"
             };
             status.ForeColor = result.Success || result.Cancelled ? InterfaceStyle.Accent : SystemColors.ControlText;
-            SetDetail(result.Success ? $"最近请求成功 · {Product.Model} · 实际推理档位 {result.Effort}" : result.Message ?? "请求未完成，请稍后重试。");
+            SetDetail(result.Success ? $"最近请求成功 · {result.Model ?? SelectedModel} · 实际推理档位 {result.Effort}" : result.Message ?? "请求未完成，请稍后重试。");
             return;
         }
         // 引擎的迟到状态不能覆盖下载进度或重新启用启停按钮。
@@ -212,6 +221,7 @@ internal sealed class MainForm : Form
         updateButton.Enabled = !busy && !closing && !preview && !updateInProgress && !updateCheckInProgress;
         if (!busy) probe.Text = "测试连接";
         copyUrl.Enabled = relayUrl.Length > 0 && !closing; copyKey.Enabled = relayKey.Length > 0 && !closing;
+        modelPicker.Enabled = !busy && !active && !closing && !preview && !updateInProgress;
         copyModel.Enabled = !closing;
     }
     private async Task SendAsync(EngineAction action)
@@ -219,7 +229,8 @@ internal sealed class MainForm : Form
         if (busy || closing || preview) return;
         busy = true; UpdateControls();
         if (action == EngineAction.Probe) probe.Text = "测试中…";
-        try { await engine.SendAsync(action); }
+        string? model = action is EngineAction.Start or EngineAction.Probe ? SelectedModel : null;
+        try { await engine.SendAsync(action, model); }
         catch (Exception error) when (error is IOException or InvalidOperationException)
         { ShowError("无法与后台通信，请重新打开应用。"); }
     }
@@ -230,7 +241,7 @@ internal sealed class MainForm : Form
         catch (ExternalException) { MessageBox.Show(this, "剪贴板暂时不可用，请稍后重试。", "暂时无法复制", MessageBoxButtons.OK, MessageBoxIcon.Information); }
     }
     private void ShowHelp() => MessageBox.Show(this,
-        "1. 在 AiMaMi 登录账号，然后点击「启动中转」。\n2. 打开 AiMaMi「中转注入 → 自定义中转模型」。\n3. 填入本窗口的 Base URL、API Key、模型 ID，协议选择 Responses。\n4. 保存并启用，保持 AiMaMi 真实账号模式。\n\n每次打开星桥都需手动启动。启动仅监听本机；测试连接或发送聊天时才会访问 BPS。\n\n仅支持 gpt-6-astra。支持 PNG、JPEG、GIF、WebP 原生图片附件，单张最多 20 MiB，每次最多 20 张、合计 32 MiB。客户端需发送图片内容，不读取请求中的本地文件路径；支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。\n\n默认账号目录为用户目录下的 .codex，支持继承 CODEX_HOME。代理继承 HTTPS_PROXY 环境变量。",
+        "1. 在 AiMaMi 登录账号，然后点击「启动中转」。\n2. 打开 AiMaMi「中转注入 → 自定义中转模型」。\n3. 填入本窗口的 Base URL、API Key、模型 ID，协议选择 Responses。\n4. 保存并启用，保持 AiMaMi 真实账号模式。\n\n每次打开星桥都需手动启动。启动仅监听本机；测试连接或发送聊天时才会访问 BPS。\n\n支持 gpt-6-astra 和 gpt-6.1-sol；6.1 Sol 不接受 none/minimal 推理档位。支持 PNG、JPEG、GIF、WebP 原生图片附件，单张最多 20 MiB，每次最多 20 张、合计 32 MiB。客户端需发送图片内容，不读取请求中的本地文件路径；支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。\n\n默认账号目录为用户目录下的 .codex，支持继承 CODEX_HOME。代理继承 HTTPS_PROXY 环境变量。",
         "将星桥接入 AiMaMi", MessageBoxButtons.OK, MessageBoxIcon.Information);
     private async Task CheckForUpdatesAsync(bool manual)
     {

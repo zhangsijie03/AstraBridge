@@ -37,7 +37,7 @@
 - HTTP/2 空闲 10 秒主动 PING，5 秒无应答关闭失活连接；使用 Go 标准库 HTTP2Config 实现上游 x/net/http2 的相同参数。明确的 HTTP 代理 H2 EOF/reset/协议故障仅影响后续同代理请求，试用 H1 一分钟，不重放失败请求；取消、普通 EOF、应用错误不触发降级。保留独立 H1/H2 连接池；本地最多记录 256 个代理摘要。
 - 等待响应头调整为原生默认 300 秒；附件上传仍为 60 秒。明确 Free 套餐按原生拒绝，未知套餐不会误判。
 
-宿主参考文件路径见 manifest 的 host_adapter_sources。独立桌面仍使用本地监听、固定 gpt-6-astra、手动启动、8 并发和请求体内存预算、60 分钟总时限及 15 秒写入时限。账号登录与刷新仍由 Codex 管理；不会写入登录文件。
+宿主参考文件路径见 manifest 的 host_adapter_sources。独立桌面仍使用本地监听、默认 gpt-6-astra 并支持 gpt-6.1-sol、手动启动、8 并发和请求体内存预算、60 分钟总时限及 15 秒写入时限。账号登录与刷新仍由 Codex 管理；不会写入登录文件。
 
 ## 2026-10-02 production 对齐
 
@@ -45,12 +45,12 @@
 
 星桥保留两项确实属于本地网关的适配：`stream.go` 在 Responses `output_text` 边界补齐空的 `annotations` / `logprobs` 字段，避免严格客户端丢失文件引用；`stream_repair_boundary_test.go` 覆盖该行为。原生附件上传仍由星桥 `internal/gateway` 负责，使用同一 BPS `openai_file_id` 契约、账号头和 60 秒超时。
 
-production 同时新增了服务端公网图片中继、route、普通 Codex 模型目录与 Prism 会话能力。星桥固定只连接 `gpt-6-astra`，继续使用本机原生附件上传，因此这些平台能力不搬入本地网关。
+production 同时新增了服务端公网图片中继、route、普通 Codex 模型目录与 Prism 会话能力。星桥只暴露 `gpt-6-astra` 与 `gpt-6.1-sol` 两个本地路由，继续使用本机原生附件上传，因此这些平台能力不搬入本地网关。
 ## 未启用的平台能力
 
 不搬入平台数据库、账号池切换、计费、OAuth 刷新、403 自动停用/恢复探测或 Mihomo 节点调度。星桥只有当前账号和本机代理；401/403/429 不自动切换账号。原生图片数量策略默认 off，保持手动 compact；不启用自动图片压缩、忽略图片或忽略加密正文等可选功能，避免静默丢失上下文。
 
-production 可选的 gpt-image-2 生图通道不在本次固定 gpt-6-astra 的工具范围内。图片输入/工具截图与图片生成是不同能力。不搬入 route.go / route_test.go 或公网 image_relay 服务。
+production 可选的 gpt-image-2 生图通道不在本次两个 BPS 模型的工具范围内。图片输入/工具截图与图片生成是不同能力。不搬入 route.go / route_test.go 或公网 image_relay 服务。
 
 ## 验证边界
 

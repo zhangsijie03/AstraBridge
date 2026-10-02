@@ -38,13 +38,13 @@ internal sealed class EngineClient : IAsyncDisposable
         monitor = MonitorAsync(process);
     }
 
-    public async Task SendAsync(EngineAction action)
+    public async Task SendAsync(EngineAction action, string? model = null)
     {
         await inputGate.WaitAsync();
         try
         {
             if (!Available || process is null) throw new IOException("后台服务未运行，请重新打开应用");
-            await process.StandardInput.WriteLineAsync(Protocol.Command(action));
+            await process.StandardInput.WriteLineAsync(Protocol.Command(action, model));
         }
         finally { inputGate.Release(); }
     }

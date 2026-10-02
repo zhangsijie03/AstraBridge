@@ -2,7 +2,7 @@
 
 Windows 10/11 x64 原生桌面版，.NET 8 WinForms，自包含发布；解压后双击 `AstraBridge.exe`，无需安装 .NET，不弹出终端。`engine/bps-local.exe` 必须与主程序一起保留。
 
-每次打开需手动启动。固定使用 `gpt-6-astra`，在 AiMaMi 中填入 Base URL、本地 API Key 和模型 ID，协议选择 Responses。只有点击测试连接或发起聊天才访问上游。API Key 是本机中转密钥，窗口不展示账号令牌。
+每次打开需手动启动。支持 `gpt-6-astra` 和 `gpt-6.1-sol`，在模型选择框选定后，将 Base URL、本地 API Key 和模型 ID 填入 AiMaMi，协议选择 Responses。只有点击测试连接或发起聊天才访问上游。API Key 是本机中转密钥，窗口不展示账号令牌。
 
 数据默认保存到 `%LOCALAPPDATA%\AstraBridge`。账号默认读取 `%USERPROFILE%\.codex`，支持启动进程继承 `CODEX_HOME`。代理继承 `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`；暂不读取 Windows PAC 或系统代理。环境变量变更后重新打开程序。
 

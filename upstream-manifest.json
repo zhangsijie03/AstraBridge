@@ -214,6 +214,16 @@
       "upstream_sha256": "52c6d96e40670ad1e3583fb0164ded7630303ae6ec4223413595cf406e851029",
       "local_sha256": "ba0da6bd4d2f079a3eb76b7bf212e405418362a3e66b3fd2f63774d185014e3d",
       "reason": "AstraBridge wire compatibility repair for long-running Responses clients"
+    },
+    "request.go": {
+      "upstream_sha256": "2f633a42d1abd1b067bd93aa02737276131a0e69787c926961e9fff5f0f271d3",
+      "local_sha256": "881cfcc7ab2d1afa76ec2511d0779297d0618b6ea0bcc8a5856eb91b07232ba7",
+      "reason": "AstraBridge model-specific reasoning compatibility: preserve native gpt-6.1-sol effort validation while retaining Astra aliases"
+    },
+    "basispoints_test.go": {
+      "upstream_sha256": "441cbf7dcf48dcf7e66826978c1f9ff3e9650283270a7f9dbece9e4c50c5841c",
+      "local_sha256": "68adb16cc014a3560b74d079654e33c98f782ec4f3d411f2251113daf31a5b39",
+      "reason": "AstraBridge regression coverage for gpt-6.1-sol reasoning effort validation"
     }
   },
   "local_files": {

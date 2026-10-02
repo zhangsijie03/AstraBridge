@@ -17,6 +17,7 @@ import (
 
 	"bpslocal/internal/basispoints"
 	"bpslocal/internal/identity"
+	"bpslocal/internal/modelid"
 )
 
 const (
@@ -112,7 +113,15 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" && r.URL.Path == "/v1/models" {
 		w.Header().Set("Content-Type", "application/json")
 		// 仅列出用户配置的模型，不声称已查询账号权限或上游完整模型目录。
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"object": "list", "data": []map[string]interface{}{{"id": g.model, "object": "model", "created": 0, "owned_by": "bps-local"}}})
+		ids := []string{g.model}
+		if g.model == "" {
+			ids = modelid.IDs()
+		}
+		data := make([]map[string]interface{}, 0, len(ids))
+		for _, id := range ids {
+			data = append(data, map[string]interface{}{"id": id, "object": "model", "created": 0, "owned_by": "bps-local"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"object": "list", "data": data})
 		return
 	}
 	if r.Method != "POST" || (r.URL.Path != "/v1/responses" && r.URL.Path != "/v1/responses/compact") {
@@ -179,9 +188,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var model string
 	_ = json.Unmarshal(source["model"], &model)
-	if g.model != "" && model != g.model {
-		problem(w, 400, "unsupported_model", "AstraBridge 仅支持固定模型 "+g.model)
-		g.emit(Result{Code: "unsupported_model", Status: 400, Model: model, Message: "AstraBridge 仅支持固定模型 " + g.model})
+	if !modelid.IsSupported(model) || (g.model != "" && model != g.model) {
+		message := fmt.Sprintf("AstraBridge 仅支持 %s 或 %s", modelid.Default, modelid.GPT61Sol)
+		if g.model != "" {
+			message = "AstraBridge 当前已选择模型 " + g.model
+		}
+		problem(w, 400, "unsupported_model", message)
+		g.emit(Result{Code: "unsupported_model", Status: 400, Model: model, Message: message})
 		return
 	}
 	var stream bool

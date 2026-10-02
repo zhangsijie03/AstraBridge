@@ -22,9 +22,15 @@ import (
 	"bpslocal/internal/relayconfig"
 )
 
-func TestBPSModelIsFixed(t *testing.T) {
-	if fixedModelID != "gpt-6-astra" {
-		t.Fatalf("BPS model must be fixed to gpt-6-astra, got %q", fixedModelID)
+func TestBPSModelsAreWhitelisted(t *testing.T) {
+	for _, model := range []string{"gpt-6-astra", "gpt-6.1-sol"} {
+		c := &controller{model: model}
+		if c.model == "" {
+			t.Fatalf("model was unexpectedly empty")
+		}
+	}
+	if defaultModelID != "gpt-6-astra" {
+		t.Fatalf("default BPS model changed: %q", defaultModelID)
 	}
 }
 

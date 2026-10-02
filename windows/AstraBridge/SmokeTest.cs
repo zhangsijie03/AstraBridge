@@ -66,17 +66,21 @@ internal static class SmokeTest
             Protocol.Command(EngineAction.Probe) != "{\"action\":\"probe\"}" ||
             Protocol.Command(EngineAction.Quit) != "{\"action\":\"quit\"}")
             throw new InvalidOperationException("命令 JSON 与引擎契约不匹配");
+        if (Protocol.Command(EngineAction.Start, Product.SolModel) != "{\"action\":\"start\",\"model\":\"gpt-6.1-sol\"}")
+            throw new InvalidOperationException("模型选择命令 JSON 与引擎契约不匹配");
         EngineEvent request = Protocol.Read("""{"type":"request","requests":7,"result":{"success":true,"model":"gpt-6-astra","effort":"high","account":"de•••@example.com","warnings":[]}}""");
         if (request.Type != EventKind.Request || request.Requests != 7 || request.Result?.Success != true)
             throw new InvalidOperationException("请求事件解析失败");
         EngineEvent trace = Protocol.Read("""{"type":"trace","requests":0,"trace":{"request_id":"R000001","time":"2026-09-29T12:00:00Z","stage":"streaming","message":"正在接收","elapsed_ms":35000,"quiet_ms":32000,"upstream_bytes":1024,"client_events":0,"tool_calls":0,"attempt":1,"http_status":200}}""");
         if (trace.Trace is not { Stage: TransferStage.Streaming, QuietMs: 32000 } || !trace.Trace.Line.Contains("上游暂无新数据"))
             throw new InvalidOperationException("转发日志事件解析失败");
+        EngineEvent sol = Protocol.Read("""{"type":"state","phase":"idle","requests":0,"model":"gpt-6.1-sol"}""");
+        if (sol.Model != Product.SolModel) throw new InvalidOperationException("6.1 Sol 状态事件未被接受");
         EngineEvent limited = Protocol.Read("""{"type":"trace","requests":1,"trace":{"request_id":"R000002","time":"2026-09-29T12:00:00Z","stage":"failed","message":"上游限流","elapsed_ms":10,"quiet_ms":0,"upstream_bytes":100,"client_events":1,"tool_calls":0,"attempt":1,"http_status":200,"semantic_status":429,"limit_hints":[{"name":"retry-after","value":"30s"}]}}""");
         if (limited.Trace is not { Terminal: true, SemanticStatus: 429, HttpStatus: 200 } || !limited.Trace.Line.Contains("retry-after=30s"))
             throw new InvalidOperationException("限流提示或流内错误状态丢失");
         foreach (string malformed in new[] { "{}", "null", "{\"type\":\"trace\",\"requests\":0}", "{\"type\":\"state\",\"phase\":\"unknown\"}",
-            "{\"type\":\"request\",\"requests\":-1}", "{\"type\":\"state\",\"phase\":\"idle\",\"base_url\":\"https://example.com\"}" })
+            "{\"type\":\"request\",\"requests\":-1}", "{\"type\":\"state\",\"phase\":\"idle\",\"base_url\":\"https://example.com\"}", "{\"type\":\"state\",\"phase\":\"idle\",\"requests\":0,\"model\":\"gpt-5.6-sol\"}" })
         {
             try { Protocol.Read(malformed); }
             catch (JsonException) { continue; }

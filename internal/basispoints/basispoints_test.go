@@ -117,6 +117,19 @@ func TestEffortAndUnsupportedCapabilities(t *testing.T) {
 	}
 }
 
+func TestSol61RejectsUnsupportedCompatibilityEfforts(t *testing.T) {
+	for _, requested := range []string{"none", "minimal"} {
+		if _, err := NormalizeEffortForModel("gpt-6.1-sol", requested); err == nil {
+			t.Fatalf("6.1 Sol accepted unsupported effort %q", requested)
+		}
+	}
+	for _, requested := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if got, err := NormalizeEffortForModel("gpt-6.1-sol", requested); err != nil || got == "" {
+			t.Fatalf("6.1 Sol effort %q = %q, %v", requested, got, err)
+		}
+	}
+}
+
 func nativeCall(envelope object) object {
 	code, _ := json.Marshal(envelope)
 	arguments, _ := json.Marshal(object{"code": string(code), "summary": "Call client tool", "extended_summary": "Preserve the original envelope", "destructive": false, "references": []any{"Tokyo weather"}})
