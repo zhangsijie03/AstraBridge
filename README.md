@@ -61,8 +61,8 @@ Windows 0.5.12 起按发行包文件逐项更新，保留安装目录中的额�
 
 1. **准备账号。** 在本机 Codex 登录 ChatGPT 账号，确保 `~/.codex/auth.json` 存在；Windows 对应 `%USERPROFILE%\.codex\auth.json`。自定义目录可通过 `CODEX_HOME` 指定。
 2. **启动星桥。** 打开应用，点击圆形 **▶** 按钮。每次打开都需要手动开启。此步骤只启动本地服务，不访问 BPS。
-3. **选择并复制连接信息。** 界面可选择 `gpt-6-astra` 或 `gpt-6.1-sol`，并提供 Base URL、本地 API Key 和模型 ID 复制按钮。
-4. **配置 AiMaMi。** 进入“中转注入 → 添加中转模型 → 自定义中转模型”，填写下表，模型 ID 使用星桥当前选择的模型。
+3. **复制连接信息。** 界面提供 Base URL、本地 API Key 和模型 ID 复制按钮；测试连接时可选择测试模型。
+4. **配置 AiMaMi。** 进入“中转注入 → 添加中转模型 → 自定义中转模型”，填写下表，模型 ID 可使用 `gpt-6-astra` 或 `gpt-6.1-sol`。
 5. **启用路由。** 在 AiMaMi 保存并启用该中转模型。保持真实账号登录模式，以便星桥读取当前登录。
 
 | 配置项 | 值 |
@@ -71,7 +71,7 @@ Windows 0.5.12 起按发行包文件逐项更新，保留安装目录中的额�
 | Base URL | 复制界面地址，默认 `http://127.0.0.1:17861/v1` |
 | API Key | 复制星桥生成的本地 Key；不是 ChatGPT token |
 | 协议 | **Responses** |
-| 模型 ID | **`gpt-6-astra`** 或 **`gpt-6.1-sol`**，启动中转前可选择 |
+| 模型 ID | **`gpt-6-astra`** 或 **`gpt-6.1-sol`**，由客户端请求选择 |
 
 上述菜单以 AiMaMi 1.2.6 为参考，其它版本以实际界面为准。星桥不会自动配置 AiMaMi 或给 Codex 写入新 provider。
 
@@ -123,12 +123,12 @@ macOS 沿用旧版目录，以保留已有地址和 Key。macOS 配置文件权�
 | 端口无法监听 | 退出旧版或重复窗口，检查 `relay.json` |
 | 本地启动成功，上游返回错误 | 本地监听不代表 BPS 权限已通过；检查账号、代理和上游状态 |
 | 其它模型不能使用 | 仅支持 `gpt-6-astra` 和 `gpt-6.1-sol`，网关会拒绝其它模型 |
-| 上游 404 / model_not_found | 本机已校验所选模型，上游当前无法提供该模型；不自动重放或切换模型。稍后重试，持续出现需核实 BPS 模型权限；本地不能恢复上游权限 |
+| 上游 404 / model_not_found | 本机已校验请求模型，上游当前无法提供该模型；不自动重放或切换模型。稍后重试，持续出现需核实 BPS 模型权限；本地不能恢复上游权限 |
 | idle timeout waiting for SSE | 已在原生注释心跳外补充完整保活事件，适配客户端的 SSE 事件空闲计时。若中间路由丢弃未知事件或在收到响应头前超时，仍需进一步检查该段链路 |
 | 自动标题或结构化输出失败 | 采用 Sub2API 原生提示与本地 JSON/Schema 校验；校验失败会报错，不提供上游约束解码 |
 | 重启后继续旧聊天异常 | 回放缓存已清空，建议新建聊天 |
 
-提供 `/v1/models`、`/v1/responses` 和 `/v1/responses/compact`；不提供 Chat Completions 转换。仅带 `previous_response_id` 的增量历史不受支持。推理档位沿用上游转换：`max/ultra → xhigh`；Astra 兼容 `none/minimal → low`，6.1 Sol 按原生规则拒绝 `none/minimal`，请使用 `low`、`medium`、`high`、`xhigh` 或 `max`。收到上游成功响应头后，流式连接沿用原生 15 秒心跳间隔，并补充 `keepalive` 数据事件；它不包含模型文本，不计作上游进度，属于星桥兼容调整。HTTP/2 连接空闲 10 秒后发送健康探测，5 秒无应答关闭失活连接；60 分钟总超时仍生效。针对 Sub2API v2.9.6 的核查依据、调整边界见 [连接与日志审查](docs/connection-and-compact-log-review.md)。
+提供 `/v1/models`、`/v1/responses` 和 `/v1/responses/compact`；不提供 Chat Completions 转换。网关同时暴露两个支持模型，由每次请求的 `model` 路由，不需要切换或重启星桥。仅带 `previous_response_id` 的增量历史不受支持。推理档位沿用上游转换：`max/ultra → xhigh`；Astra 兼容 `none/minimal → low`，6.1 Sol 按原生规则拒绝 `none/minimal`，请使用 `low`、`medium`、`high`、`xhigh` 或 `max`。收到上游成功响应头后，流式连接沿用原生 15 秒心跳间隔，并补充 `keepalive` 数据事件；它不包含模型文本，不计作上游进度，属于星桥兼容调整。HTTP/2 连接空闲 10 秒后发送健康探测，5 秒无应答关闭失活连接；60 分钟总超时仍生效。针对 Sub2API v2.9.6 的核查依据、调整边界见 [连接与日志审查](docs/connection-and-compact-log-review.md)。
 
 报告问题时请附系统版本、星桥版本、操作步骤和脱敏错误提示。**不要上传 auth.json、relay.json、完整聊天、token 或 Key。**
 

@@ -22,7 +22,8 @@ func TestRelayAcceptsGPT61SolAndPreservesModel(t *testing.T) {
 		fmt.Fprint(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"sol-1\",\"status\":\"completed\",\"model\":\"gpt-6.1-sol\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n")
 	})
 	w := httptest.NewRecorder()
-	g.model = "gpt-6.1-sol"
+	// 空模型表示动态路由：网关按每次请求的 model 选择两个白名单模型之一。
+	g.model = ""
 	g.ServeHTTP(w, request(`{"model":"gpt-6.1-sol","input":"hello","stream":true,"reasoning":{"effort":"max"}}`))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "sol-1") {
 		t.Fatalf("6.1 Sol request failed: %d %s", w.Code, w.Body.String())
@@ -75,7 +76,7 @@ func TestRelayModelsListsBothSupportedRoutesWhenUnpinned(t *testing.T) {
 	}
 }
 
-func TestRelayRejectsModelOutsideFixedBPSModel(t *testing.T) {
+func TestRelayRejectsModelOutsideSupportedBPSModels(t *testing.T) {
 	called := false
 	g := gateway(t, func(w http.ResponseWriter, r *http.Request) {
 		called = true

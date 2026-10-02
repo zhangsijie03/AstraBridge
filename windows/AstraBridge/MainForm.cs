@@ -108,7 +108,7 @@ internal sealed class MainForm : Form
         fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         fields.Controls.Add(ConnectionRow("Base URL", baseUrl, copyUrl));
         fields.Controls.Add(ConnectionRow("API Key · 本地中转密钥", apiKey, copyKey));
-        fields.Controls.Add(ConnectionRow("模型 ID · 可选模型 · 原生图片上传", modelPicker, copyModel));
+        fields.Controls.Add(ConnectionRow("测试模型 ID · 可选模型 · 原生图片上传", modelPicker, copyModel));
         Add(root, fields, 12);
         var count = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         count.Controls.Add(InterfaceStyle.Label("成功请求  ", 9, secondary: true)); count.Controls.Add(requests);
@@ -164,7 +164,7 @@ internal sealed class MainForm : Form
     {
         if (preview)
         {
-            Apply(Protocol.Read("""{"type":"state","phase":"idle","base_url":"http://127.0.0.1:17861/v1","api_key":"preview-local-key-not-a-credential","account":"demo•••@example.com","model":"gpt-6-astra","requests":0,"message":"启动本地中转后，即可通过 AiMaMi 使用所选模型。"}"""));
+            Apply(Protocol.Read("""{"type":"state","phase":"idle","base_url":"http://127.0.0.1:17861/v1","api_key":"preview-local-key-not-a-credential","account":"demo•••@example.com","model":"gpt-6-astra","requests":0,"message":"启动本地中转后，AiMaMi/Codex 可在每次请求中切换支持的模型。"}"""));
             return;
         }
         try { engine.Start(); }
@@ -221,7 +221,7 @@ internal sealed class MainForm : Form
         updateButton.Enabled = !busy && !closing && !preview && !updateInProgress && !updateCheckInProgress;
         if (!busy) probe.Text = "测试连接";
         copyUrl.Enabled = relayUrl.Length > 0 && !closing; copyKey.Enabled = relayKey.Length > 0 && !closing;
-        modelPicker.Enabled = !busy && !active && !closing && !preview && !updateInProgress;
+        modelPicker.Enabled = !busy && !closing && !preview && !updateInProgress;
         copyModel.Enabled = !closing;
     }
     private async Task SendAsync(EngineAction action)
@@ -241,7 +241,7 @@ internal sealed class MainForm : Form
         catch (ExternalException) { MessageBox.Show(this, "剪贴板暂时不可用，请稍后重试。", "暂时无法复制", MessageBoxButtons.OK, MessageBoxIcon.Information); }
     }
     private void ShowHelp() => MessageBox.Show(this,
-        "1. 在 AiMaMi 登录账号，然后点击「启动中转」。\n2. 打开 AiMaMi「中转注入 → 自定义中转模型」。\n3. 填入本窗口的 Base URL、API Key、模型 ID，协议选择 Responses。\n4. 保存并启用，保持 AiMaMi 真实账号模式。\n\n每次打开星桥都需手动启动。启动仅监听本机；测试连接或发送聊天时才会访问 BPS。\n\n支持 gpt-6-astra 和 gpt-6.1-sol；6.1 Sol 不接受 none/minimal 推理档位。支持 PNG、JPEG、GIF、WebP 原生图片附件，单张最多 20 MiB，每次最多 20 张、合计 32 MiB。客户端需发送图片内容，不读取请求中的本地文件路径；支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。\n\n默认账号目录为用户目录下的 .codex，支持继承 CODEX_HOME。代理继承 HTTPS_PROXY 环境变量。",
+        "1. 在 AiMaMi 登录账号，然后点击「启动中转」。\n2. 打开 AiMaMi「中转注入 → 自定义中转模型」。\n3. 填入本窗口的 Base URL 和 API Key，协议选择 Responses；模型 ID 可使用 gpt-6-astra 或 gpt-6.1-sol。\n4. 保存并启用，保持 AiMaMi 真实账号模式。\n\n星桥会同时接受两个支持模型，实际转发模型由每次请求中的 model 决定，不需要切换星桥。测试模型下拉框只影响「测试连接」使用的模型。\n\n每次打开星桥都需手动启动。启动仅监听本机；测试连接或发送聊天时才会访问 BPS。6.1 Sol 不接受 none/minimal 推理档位。支持 PNG、JPEG、GIF、WebP 原生图片附件，单张最多 20 MiB，每次最多 20 张、合计 32 MiB。客户端需发送图片内容，不读取请求中的本地文件路径；支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。\n\n默认账号目录为用户目录下的 .codex，支持继承 CODEX_HOME。代理继承 HTTPS_PROXY 环境变量。",
         "将星桥接入 AiMaMi", MessageBoxButtons.OK, MessageBoxIcon.Information);
     private async Task CheckForUpdatesAsync(bool manual)
     {

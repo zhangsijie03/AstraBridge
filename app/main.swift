@@ -116,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             keyStateLabel.stringValue = "•••• •••• •••• ••••"
             accountLabel.stringValue = "demo•••@example.com"
             statusLabel.stringValue = "准备就绪"
-            detailLabel.stringValue = "启动本地中转后，即可通过 AiMaMi 使用所选模型。"
+            detailLabel.stringValue = "启动本地中转后，AiMaMi/Codex 可在每次请求中切换支持的模型。"
             previewLabel.isHidden = false
             updateStatusIcon("pause.circle.fill", color: .secondaryLabelColor)
             setBusy(false)
@@ -277,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let fields = [
             connectionRow("Base URL", value: routeLabel, copy: copyURLButton),
             connectionRow("API Key", value: keyStateLabel, note: "本地中转密钥", copy: copyKeyButton),
-            connectionRow("模型 ID", value: modelPicker, note: "可选模型 · 原生图片上传", copy: copyModelButton)
+            connectionRow("测试模型 ID", value: modelPicker, note: "仅用于测试连接；实际转发模型由请求决定", copy: copyModelButton)
         ]
         for (index, row) in fields.enumerated() {
             if index > 0 {
@@ -457,8 +457,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !value { testButton.title = "测试连接" }
         copyURLButton.isEnabled = !relayBaseURL.isEmpty
         copyKeyButton.isEnabled = !relayAPIKey.isEmpty
-        // 运行中锁定模型，避免网关已经启动后 UI 与实际路由不一致。
-        modelPicker.isEnabled = !value && !active && !closing && !updateInProgress
+        // 网关按每次请求的 model 路由；该选择仅影响测试连接，运行中也可调整。
+        modelPicker.isEnabled = !value && !closing && !updateInProgress
         copyModelButton.isEnabled = true
     }
 
@@ -604,7 +604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func openHelp() {
         let alert = NSAlert()
         alert.messageText = "将星桥接入 AiMaMi"
-        alert.informativeText = "1. 点击「启动中转」。\n2. 在 AiMaMi 打开「中转注入 → 自定义中转模型」。\n3. 复制本窗口的 Base URL、API Key 和模型 ID，协议选择 Responses。\n4. 保存并启用中转，保持 AiMaMi 真实账号模式。\n\n启动仅监听本机。点击「测试连接」或发送聊天时，才会使用当前账号连接 BPS。\n\n支持 gpt-6-astra 和 gpt-6.1-sol。6.1 Sol 不接受 none/minimal 推理档位；图片自动上传为 BPS 原生附件，无需图床或公网域名。支持 PNG、JPEG、GIF、WebP；单张最多 20 MiB，每次最多 20 张、合计 32 MiB。\n\n客户端需发送图片内容；不读取请求里的本地文件路径。支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。"
+        alert.informativeText = "1. 点击「启动中转」。\n2. 在 AiMaMi 打开「中转注入 → 自定义中转模型」。\n3. 填入本窗口的 Base URL 和 API Key，协议选择 Responses；模型 ID 可使用 gpt-6-astra 或 gpt-6.1-sol。\n4. 保存并启用，保持 AiMaMi 真实账号模式。\n\n星桥会同时接受两个支持模型，实际转发模型由每次请求中的 model 决定，不需要切换星桥。测试模型下拉框只影响「测试连接」使用的模型。\n\n启动仅监听本机。点击「测试连接」或发送聊天时，才会使用当前账号连接 BPS。6.1 Sol 不接受 none/minimal 推理档位；图片自动上传为 BPS 原生附件，无需图床或公网域名。支持 PNG、JPEG、GIF、WebP；单张最多 20 MiB，每次最多 20 张、合计 32 MiB。\n\n客户端需发送图片内容；不读取请求里的本地文件路径。支持 JSON / JSON Schema 输出，通过提示约束并在本地校验；不提供上游原生约束解码。"
         alert.informativeText += "\n\n测试连接是真实上游请求，每次测试后有 60 秒冷却，请勿连续点击。"
         alert.addButton(withTitle: "知道了")
         alert.beginSheetModal(for: window)

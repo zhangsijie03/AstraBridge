@@ -32,7 +32,7 @@ import (
 
 type Phase string
 
-// 默认保持 Astra 兼容；6.1 Sol 由桌面端在启动/探测命令中显式选择。
+// 默认用 Astra 做连通性探测；实际转发模型由每次 Responses 请求的 model 决定。
 const defaultModelID = modelid.Default
 
 // 测试请求会真实访问 BPS；冷却窗口避免重复探测触发上游风控。
@@ -219,7 +219,8 @@ func (c *controller) start() error {
 	port := listener.Addr().(*net.TCPAddr).Port
 	c.baseURL = fmt.Sprintf("http://127.0.0.1:%d/v1", port)
 	// 每个请求重新读取账号，AiMaMi 切换/刷新账号后无需把令牌交给客户端配置。
-	g := gateway.New(c.settings.APIKey, c.model, func() (identity.Account, error) { return identity.Read(c.authPath) }, func(r gateway.Result) {
+	// 网关不绑定单一模型，只校验请求是否属于本地支持白名单；这样 AiMaMi/Codex 可直接切换模型。
+	g := gateway.New(c.settings.APIKey, "", func() (identity.Account, error) { return identity.Read(c.authPath) }, func(r gateway.Result) {
 		if r.Success {
 			c.count.Add(1)
 		}
@@ -254,7 +255,7 @@ func (c *controller) start() error {
 			c.status(phaseError, "本地监听意外停止，请退出后重新启动")
 		}
 	}()
-	c.out.send(Event{Type: "state", Phase: phaseEnabled, Account: account.MaskedEmail, Model: c.model, Port: port, BaseURL: c.baseURL, APIKey: c.settings.APIKey, Requests: c.count.Load(), Message: fmt.Sprintf("本地中转已启动；尚未验证上游。将地址和 API Key 填入 AiMaMi，并选择模型 %s。", c.model)})
+	c.out.send(Event{Type: "state", Phase: phaseEnabled, Account: account.MaskedEmail, Port: port, BaseURL: c.baseURL, APIKey: c.settings.APIKey, Requests: c.count.Load(), Message: "本地中转已启动；支持 gpt-6-astra 和 gpt-6.1-sol，实际模型由 AiMaMi/Codex 请求中的 model 决定。"})
 	return nil
 }
 func (c *controller) stop() error {
@@ -361,13 +362,11 @@ func main() {
 			if !ok {
 				return
 			}
-			// 仅在启动或探测前接受白名单模型；运行中的服务不允许无感切换路由。
+			// 仅在启动或探测前接受白名单模型；该值只影响探测，不绑定实际转发路由。
 			e = nil
 			if (cmd.Action == "start" || cmd.Action == "probe") && cmd.Model != "" {
 				if !modelid.IsSupported(cmd.Model) {
 					e = fmt.Errorf("不支持的模型 %q；可选模型：%s、%s", cmd.Model, modelid.Default, modelid.GPT61Sol)
-				} else if c.server != nil && cmd.Model != c.model {
-					e = errors.New("中转已运行，请先停止后再切换模型")
 				} else {
 					c.model = cmd.Model
 				}
