@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source_code = (root / 'windows/AstraBridge/UpdateChecker.cs').read_text()
+source_code = (root / 'windows/AstraBridge/UpdateChecker.cs').read_text(encoding='utf-8')
 script = source_code.split('File.WriteAllText(script, """', 1)[1].split('""", Encoding.UTF8)', 1)[0].strip()
 parameters, body = script.split('\n', 1)
 # Stub process lookup/relaunch and delays only; file operations remain real except at the failure site.
