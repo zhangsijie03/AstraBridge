@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/ranxi2001/sub2api",
   "tag": "production",
-  "commit": "bf9405e4ab58c1be4fc8ec2101371753a016908e",
+  "commit": "23eed543bbf6de4164b55862c2a0f3d84f662b75",
   "source_path": "backend/internal/service/basispoints",
   "sha256": {
     "NOTICE.md": "25f9f404a89bc3d2801b9380a92db3c05560337714e66e03ecdb939029c19dc1",
@@ -95,7 +95,7 @@
     "tools.go": "dfac7539c613040e19cdd5a95d3517f5bf4acee00d6cbeee7939743b503cd6f5"
   },
   "native_images": {
-    "commit": "bf9405e4ab58c1be4fc8ec2101371753a016908e",
+    "commit": "23eed543bbf6de4164b55862c2a0f3d84f662b75",
     "source_path": "backend/internal/service/basispoints",
     "unmodified_files": [
       "attachments.go",
@@ -182,7 +182,7 @@
   ],
   "host_adapter_source": "backend/internal/service/openai_excel_bps.go",
   "native_transport": {
-    "commit": "bf9405e4ab58c1be4fc8ec2101371753a016908e",
+    "commit": "23eed543bbf6de4164b55862c2a0f3d84f662b75",
     "source_path": "backend/internal/util/transportdiag",
     "local_path": "internal/transportdiag",
     "sha256": {
@@ -193,6 +193,7 @@
   },
   "host_adapter_sources": [
     "backend/internal/service/openai_excel_bps.go",
+    "backend/internal/service/openai_excel_bps_transport.go",
     "backend/internal/service/openai_ws_execution_scope.go",
     "backend/internal/service/openai_gateway_scheduling.go",
     "backend/internal/service/openai_excel_bps_encrypted.go",

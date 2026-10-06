@@ -149,9 +149,9 @@ scripts/             构建、来源校验与离线检查
 
 ## 上游来源与许可
 
-文本、工具及图片协议以 [Sub2API production](https://github.com/ranxi2001/sub2api/tree/production) 的固定提交 `bf9405e4ab58c1be4fc8ec2101371753a016908e` 为基线。沿用原生工具传输、批次校验、图片附件和有限纠错，星桥网关保留原生工具目录继承、会话隔离、图片预校验及单次加密推理恢复。
+文本、工具及图片协议以 [Sub2API production](https://github.com/ranxi2001/sub2api/tree/production) 的固定提交 `23eed543bbf6de4164b55862c2a0f3d84f662b75` 为基线（2026-10-06 核查，最新 Release 为 v2.9.10）。沿用原生工具传输、批次校验、图片附件和有限纠错，星桥网关保留原生工具目录继承、会话隔离、图片预校验及单次加密推理恢复。
 
-当前锁定 **64 个上游协议文件：60 个逐字节一致、4 个登记为星桥本地适配（含测试）**，另有 2 个本地文件：图片共享代码提取文件和流式输出回归测试；3 个传输诊断文件继续原样校验。Sub2API 的公网图片中继、平台路由、完整 Codex 模型目录和 Prism 会话不属于星桥双模型 BPS 网关。完整边界见 [来源说明](docs/source-provenance.md)、[哈希清单](upstream-manifest.json) 和 [2026-10-02 上游差异核查](docs/upstream-review-2026-10-02.md)。
+当前锁定 **64 个上游协议文件：60 个逐字节一致、4 个登记为星桥本地适配（含测试）**，另有 2 个本地文件：图片共享代码提取文件和流式输出回归测试；3 个传输诊断文件继续原样校验。Sub2API 的公网图片中继、平台路由、完整 Codex 模型目录和 Prism 会话不属于星桥双模型 BPS 网关。完整边界见 [来源说明](docs/source-provenance.md)、[哈希清单](upstream-manifest.json) 和 [2026-10-06 上游差异核查](docs/upstream-review-2026-10-06.md)。
 
 AstraBridge 原创代码按 [GPL-3.0-only](LICENSE) 开源；第三方代码保留各自许可证及归属，见 [NOTICE](NOTICE) 与 [licenses](licenses)。感谢 Sub2API 与原协议作者 [hloolx/codex2api](https://github.com/hloolx/codex2api)。
 

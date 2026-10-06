@@ -3,8 +3,8 @@
 ## 当前固定来源
 
 - 来源分支：https://github.com/ranxi2001/sub2api/tree/production
-- 真实提交：`bf9405e4ab58c1be4fc8ec2101371753a016908e`
-- 最近发布标签：`v2.9.6`；本版本锁定其后的 production 提交，不把标签名当作提交
+- 真实提交：`23eed543bbf6de4164b55862c2a0f3d84f662b75`（2026-10-06 核查）
+- 最近发布标签：`v2.9.10`；本次锁定其后的 production 提交，不把标签名当作提交
 - 原协议目录：`backend/internal/service/basispoints/`
 - 本地协议目录：`internal/basispoints/`
 
@@ -20,7 +20,7 @@
 
 ## 宿主接入对齐
 
-`internal/gateway/` 根据同一提交的宿主源码移植，属于适配代码，不声称逐字节不变：
+`internal/gateway/` 根据清单记录的宿主源码选择性适配，保留下述本地行为并排除平台功能，不声称逐字节不变：
 
 - `NativeImages.PrepareWithCatalog` 接入可信会话的工具目录继承；上传图片后调用 `Bridge.Reprepare`，保持本请求已校验的工具目录快照。
 - 会话身份依次识别 thread-id、turn metadata、window ID、client_metadata，再回退到显式 session/conversation 头或 prompt_cache_key；memory 和无线程元数据的 subagent 请求按原生规则隔离。匿名请求不启用跨请求回放、目录或附件缓存。归一化身份同步到 prompt_cache_key。
@@ -38,6 +38,12 @@
 - 等待响应头调整为原生默认 300 秒；附件上传仍为 60 秒。明确 Free 套餐按原生拒绝，未知套餐不会误判。
 
 宿主参考文件路径见 manifest 的 host_adapter_sources。独立桌面仍使用本地监听、支持 gpt-6-astra 与 gpt-6.1-sol 按请求路由、手动启动、8 并发和请求体内存预算、60 分钟总时限及 15 秒写入时限。账号登录与刷新仍由 Codex 管理；不会写入登录文件。
+
+## 2026-10-06 production 对齐
+
+基线推进到 `23eed543bbf6de4164b55862c2a0f3d84f662b75`。相对 2026-10-02 的基线，上游新增 156 个提交、628 个文件发生变化；完整 Git tree 证明 71 个 BPS 核心文件和 3 个传输诊断文件全部未变。已引入的 64 个协议文件及 3 个诊断文件的来源哈希逐个与新提交核对；4 个本地补丁和 2 个本地文件保持不变。
+
+宿主新增的质量检测回调用于 5xx 后的平台账号隔离、Redis 排队与定时质量测试，不改变 BPS 请求或流式转换；星桥不引入这套账号池运营功能。区域出口新实现明确排除 Excel BPS；代理日志脱敏在星桥已有实现。协议、原生附件、会话隔离、冷却和模型权限错误处理继续沿用现有实现。本次仅更新源码来源基线，不改变 0.5.17 应用行为或发布新安装包。完整证据见 [2026-10-06 上游差异核查](upstream-review-2026-10-06.md)。
 
 ## 2026-10-02 production 对齐
 
